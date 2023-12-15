@@ -27,6 +27,9 @@ Useful for watching Tool Assisted Speedruns at native resolution from
 
 ## Available shaders
 
+- CRT guest advanced shader (`--profile=crt-guest-advanced-ntsc`) emulates CRT
+  looks. See [crtgan] for info on parameters.
+
 - Lottes' CRT shader (`--profile=crt-lottes`) emulates several CRT looks.
   Change the `SHADOW_MASK` parameter (0-4) to switch CRT types.
   Change the `CURVATURE` parameter to set the curvature of the screen.
@@ -39,5 +42,6 @@ Useful for watching Tool Assisted Speedruns at native resolution from
 Each shader is distributed under a different license.
 See their source for details.
 
+[crtgan]: https://github.com/libretro/slang-shaders/blob/8595c3cbea2120bc9b82e4ff756f61100543ec83/crt/shaders/guest/advanced/README_old
 [libretro]: https://github.com/libretro/glsl-shaders
 [mpv]: https://mpv.io
