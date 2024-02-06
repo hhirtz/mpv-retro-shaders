@@ -1296,6 +1296,7 @@ vec4 hook() {
 	return FragColor;
 }
 
+
 //!HOOK MAIN
 //!SAVE NTSCA1
 //!BIND MAIN
@@ -1303,27 +1304,47 @@ vec4 hook() {
 //!WIDTH OUTPUT.w
 //!HEIGHT INTERLACE.h
 //!COMPONENTS 4
-//!DESC CRT Guest Advanced NTSC -- First advanced pass
+//!DESC CRT Guest Advanced NTSC -- Pass1
 
 // Parameters
-#define HSHARPNESS 1.75  // between 1.0 and 8.0
-#define SIGMA_HOR  0.85  // between 0.1 and 7.0
-#define S_SHARP    1.4   // between 0.0 and 3.0
-#define HSHARP     1.2   // between 0.0 and 2.0
-#define MAXS       0.18  // between 0.0 and 0.3
-#define HARNG      0.4   // between 0.0 and 4.0
-#define SPIKE      1.0   // between 0.0 and 2.0
+#define HORIZONTAL_FILTER_RANGE          1.75  // between 1.0 and 8.0
+#define HORIZONTAL_BLUR_SIGMA            0.85  // between 0.1 and 7.0
+#define SUBSTRACIVE_SHARPNESS            1.4   // between 0.0 and 3.0
+#define SHARPNESS_DEFINITION             1.2   // between 0.0 and 2.0
+#define MAXIMUM_SHARPNESS                0.18  // between 0.0 and 0.3
+#define SUBSTRACTIVRE_SHARPNESS_RINGING  0.4   // between 0.0 and 4.0
+#define SCANLINE_SPIKE_REMOVAL           1.0   // between 0.0 and 2.0
 
-float gaussian(float x) {
-	const float invsqrsigma = 1.0/(2.0*SIGMA_HOR*SIGMA_HOR);
-	return exp(-x * x * invsqrsigma);
+// libretro <-> mpv compatibility layer
+#define COMPAT_TEXTURE(c,d) texture(c,d)
+#define LinearizePass INTERLACE_raw
+struct params_ {
+	vec4 OriginalSize;
+} params = params_(
+	vec4(MAIN_size, MAIN_pt)
+);
+#define HSHARPNESS HORIZONTAL_FILTER_RANGE
+#define SIGMA_HOR HORIZONTAL_BLUR_SIGMA
+#define S_SHARP SUBSTRACIVE_SHARPNESS
+#define HSHARP SHARPNESS_DEFINITION
+#define MAXS MAXIMUM_SHARPNESS
+#define HARNG SUBSTRACTIVRE_SHARPNESS_RINGING
+#define spike SCANLINE_SPIKE_REMOVAL
+vec2 vTexCoord = INTERLACE_pos * 1.00001;
+
+float invsqrsigma = 1.0/(2.0*SIGMA_HOR*SIGMA_HOR);
+
+float gaussian(float x)
+{
+	return exp(-x*x*invsqrsigma);
 }
 
 vec4 hook() {
-	vec2 vTexCoord = INTERLACE_pos * 1.00001;
-	vec2 prescalex = vec2(textureSize(INTERLACE_raw, 0)) / MAIN_size;
+	vec4 FragColor = vec4(0.0);
 
-	vec4 SourceSize = vec4(MAIN_size, 1.0 / MAIN_size.x, 1.0 / MAIN_size.y) * vec4(2.0*prescalex.x, prescalex.y, 0.5/prescalex.x, 1.0/prescalex.y);
+	vec2 prescalex = vec2(textureSize(LinearizePass, 0)) / params.OriginalSize.xy;
+
+	vec4 SourceSize = params.OriginalSize * vec4(2.0*prescalex.x, prescalex.y, 0.5/prescalex.x, 1.0/prescalex.y);
 
 	float f = fract(SourceSize.x * vTexCoord.x);
 	f = 0.5 - f;
@@ -1355,8 +1376,9 @@ vec4 hook() {
 
 	float n = -LOOPSIZE;
 
-	do {
-		pixel  = INTERLACE_tex(tex + n*dx).rgb;
+	do
+	{
+		pixel  = COMPAT_TEXTURE(LinearizePass, tex + n*dx).rgb;
 		sp = max(max(pixel.r,pixel.g),pixel.b);
 
 		w = gaussian(n+f) - sharp;
@@ -1380,9 +1402,11 @@ vec4 hook() {
 
 	color = clamp(mix(clamp(color, cmin, cmax), color, HARNG), 0.0, 1.0);
 
-	scolor = clamp(mix(max(max(color.r, color.g),color.b), scolor, SPIKE), 0.0, 1.0);
+	scolor = clamp(mix(max(max(color.r, color.g),color.b), scolor, spike), 0.0, 1.0);
 
-	return vec4(color, scolor);
+	FragColor = vec4(color, scolor);
+
+	return FragColor;
 }
 
 //!HOOK MAIN
