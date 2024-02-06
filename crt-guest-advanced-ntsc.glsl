@@ -1574,21 +1574,42 @@ vec4 hook() {
 //!DESC CRT Guest Advanced NTSC -- Horizontal bloom
 
 // Parameters
-#define FINE_BLOOM   1.0   // between 1.0 and 4.0
-#define SIZEHB       3.0   // between 1.0 and 50.0
-#define SIGMA_HB     0.75  // between 0.25 and 15.0
-#define BLOOMCUT_H   0.0   // between -0.5 and 0.5
+#define FINE_BLOOM_SAMPLING        1.0   // between 1.0 and 4.0
+#define HORIZONTAL_BLOOM_RADIUS    3.0   // between 1.0 and 50.0
+#define HORIZONTAL_BLOOM_SIGMA     0.75  // between 0.25 and 15.0
+#define HORIZONTAL_BLOOM_SUBSTRACT 0.0   // between -0.5 and 0.5
 
-float gaussian(float x) {
-	const float invsqrsigma = 1.0/(2.0*SIGMA_HB*SIGMA_HB);
+// libretro <-> mpv compatibility layer
+#define COMPAT_TEXTURE(c,d) texture(c,d)
+#define Source VBLUR_raw
+#define LinearizePass INTERLACE_raw
+struct params_ {
+	vec4 SourceSize;
+	vec4 OriginalSize;
+} params = params_(
+	vec4(VBLUR_size, VBLUR_pt),
+	vec4(MAIN_size, MAIN_pt)
+);
+#define FINE_BLOOM FINE_BLOOM_SAMPLING
+#define SIZEHB HORIZONTAL_BLOOM_RADIUS
+#define SIGMA_HB HORIZONTAL_BLOOM_SIGMA
+#define BLOOMCUT_H HORIZONTAL_BLOOM_SUBSTRACT
+vec2 vTexCoord = VBLUR_pos;
+
+float invsqrsigma = 1.0/(2.0*SIGMA_HB*SIGMA_HB);
+
+float gaussian(float x)
+{
 	return exp(-x*x*invsqrsigma);
 }
 
 vec4 hook() {
-	vec4 SourceSize1 = vec4(MAIN_size, 1.0 / MAIN_size.x, 1.0 / MAIN_size.y) * mix(1.0.xxxx, vec4(FINE_BLOOM, FINE_BLOOM, 1.0/FINE_BLOOM, 1.0/FINE_BLOOM), min(FINE_BLOOM-1.0,1.0));
-	float f = fract(SourceSize1.x * VBLUR_pos.x);
+	vec4 FragColor = vec4(0.0);
+
+	vec4 SourceSize1 = params.OriginalSize * mix(1.0.xxxx, vec4(FINE_BLOOM, FINE_BLOOM, 1.0/FINE_BLOOM, 1.0/FINE_BLOOM), min(FINE_BLOOM-1.0,1.0));
+	float f = fract(SourceSize1.x * vTexCoord.x);
 	f = 0.5 - f;
-	vec2 tex = floor(SourceSize1.xy * VBLUR_pos)*SourceSize1.zw + 0.5*SourceSize1.zw;
+	vec2 tex = floor(SourceSize1.xy * vTexCoord)*SourceSize1.zw + 0.5*SourceSize1.zw;
 	vec4 color = vec4(0.0);
 	vec2 dx  = vec2(SourceSize1.z, 0.0);
 
@@ -1599,7 +1620,7 @@ vec4 hook() {
 
 	do
 	{
-		pixel  = INTERLACE_tex(tex + n*dx);
+		pixel  = COMPAT_TEXTURE(LinearizePass, tex + n*dx);
 		w = gaussian(n+f);
 		w      = (BLOOMCUT_H >= 0.0) ? max(w - BLOOMCUT_H, 0.0) : (max(w + BLOOMCUT_H, 0.0)/(1.0 + BLOOMCUT_H));
 		pixel.a = max(max(pixel.r, pixel.g),pixel.b);
@@ -1612,7 +1633,9 @@ vec4 hook() {
 
 	color = color / wsum;
 
-	return vec4(color.rgb, pow(color.a, 0.333333));
+	FragColor = vec4(color.rgb, pow(color.a, 0.333333));
+
+	return FragColor;
 }
 
 //!HOOK MAIN
