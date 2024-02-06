@@ -1097,45 +1097,73 @@ vec4 hook() {
 //!WIDTH FASTSHARPEN.w
 //!HEIGHT FASTSHARPEN.h
 //!COMPONENTS 4
-//!DESC CRT Guest Advanced NTSC -- Average luminance
+//!DESC CRT Guest Advanced NTSC -- AvgLumPass
 
 // Parameters
-#define LSMOOTH 0.7  // between 0.5 and 0.99
+#define BLOOM_SMOOTH 0.7  // between 0.5 and 0.99
 
-float dist(vec3 a, vec3 b) {
-	float r = 0.5 * (a.r + b.r);
-	vec3 d = a - b;
-	vec3 c = vec3(2.0 + r, 4.0, 3.0 - r);
-	return sqrt(dot(c * d, d)) / 3.0;
+// libretro <-> mpv compatibility layer
+#define COMPAT_TEXTURE(c,d) texture(c,d)
+#define Source FASTSHARPEN_raw
+struct params_ {
+	vec4 SourceSize;
+} params = params_(
+	vec4(FASTSHARPEN_size, FASTSHARPEN_pt)
+);
+#define SourceSize params.SourceSize
+#define lsmooth BLOOM_SMOOTH
+vec2 vTexCoord = FASTSHARPEN_pos * 1.00001;
+#define TEX0 vTexCoord
+
+float dist(vec3 A, vec3 B)
+{
+	float r = 0.5 * (A.r + B.r);
+	vec3 d = A - B;
+	vec3 c = vec3(2. + r, 4., 3. - r);
+
+	return sqrt(dot(c*d, d)) / 3.;
 }
 
 vec4 hook() {
-	float m = floor(max(max(log2(FASTSHARPEN_size.x), log2(FASTSHARPEN_size.y)), 1.0)) - 1.0;
-	float ltotal = 0.25 * (
-		length(textureLod(FASTSHARPEN_raw, vec2(0.3, 0.3), m).rgb)
-		+ length(textureLod(FASTSHARPEN_raw, vec2(0.3, 0.7), m).rgb)
-		+ length(textureLod(FASTSHARPEN_raw, vec2(0.7, 0.3), m).rgb)
-		+ length(textureLod(FASTSHARPEN_raw, vec2(0.7, 0.7), m).rgb));
+	vec4 FragColor = vec4(0.0);
+
+	float m = max(log2(SourceSize.x), log2(SourceSize.y));
+	m = floor(max(m, 1.0))-1.0;
+
+	vec2 dx = vec2(1.0/SourceSize.x, 0.0);
+	vec2 dy = vec2(0.0, 1.0/SourceSize.y);
+	vec2 y2 = 2.0*dy;
+	vec2 x2 = 2.0*dx;
+
+	float ltotal = 0.0;
+
+	ltotal+= length(textureLod(Source, vec2(0.3, 0.3), m).rgb);
+	ltotal+= length(textureLod(Source, vec2(0.3, 0.7), m).rgb);
+	ltotal+= length(textureLod(Source, vec2(0.7, 0.3), m).rgb);
+	ltotal+= length(textureLod(Source, vec2(0.7, 0.7), m).rgb);
+
+	ltotal*=0.25;
+
 	ltotal = pow(0.577350269 * ltotal, 0.70);
 
-	// TODO accumulate results from previous pass output
-	//float lhistory = AVGLUM_history_tex(vec2(0.5, 0.5)).a;
-	//ltotal = mix(ltotal, lhistory, LSMOOTH);
+	// TODO PassFeedpack is meant to be the output of this pass at the previous frame. Change this when mpv supports this feature
+	//float lhistory = texture(AvgLumPassFeedback, vec2(0.5,0.5)).a;
+	float lhistory = ltotal;
 
-	vec2 dx = vec2(1.0 / FASTSHARPEN_size.x, 0.0);
-	vec2 dy = vec2(0.0, 1.0 / FASTSHARPEN_size.y);
-	vec2 dx2 = 2.0 * dx;
+	ltotal = mix(ltotal, lhistory, lsmooth);
 
-	vec3 l1 = FASTSHARPEN_tex(FASTSHARPEN_pos).rgb;
-	vec3 r1 = FASTSHARPEN_tex(FASTSHARPEN_pos + dx).rgb;
-	vec3 l2 = FASTSHARPEN_tex(FASTSHARPEN_pos - dx).rgb;
-	vec3 r2 = FASTSHARPEN_tex(FASTSHARPEN_pos + dx2).rgb;
+	vec3 l1 = COMPAT_TEXTURE(Source, TEX0.xy           ).rgb;
+	vec3 r1 = COMPAT_TEXTURE(Source, TEX0.xy +dx       ).rgb;
+	vec3 l2 = COMPAT_TEXTURE(Source, TEX0.xy -dx       ).rgb;
+	vec3 r2 = COMPAT_TEXTURE(Source, TEX0.xy +x2       ).rgb;
 
-	float c1 = dist(l2, l1);
-	float c2 = dist(l1, r1);
-	float c3 = dist(r2, r1);
+	float c1 = dist(l2,l1);
+	float c2 = dist(l1,r1);
+	float c3 = dist(r2,r1);
 
-	return vec4(c1, c2, c3, ltotal);
+	FragColor = vec4(c1,c2,c3,ltotal);
+
+	return FragColor;
 }
 
 //!HOOK MAIN
