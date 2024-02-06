@@ -31,15 +31,26 @@
 #define PERSISTENCE_GREEN 0.32  // between 0.0 and 0.5
 #define PERSISTENCE_BLUE  0.32  // between 0.0 and 0.5
 
+#ifndef linearize
+// Implementation from mpv's gpu-next
+vec4 linearize(vec4 color) {
+       const float _const_0_1 = 0.05958483740687370300;
+       const float _const_1_1 = 0.87031054496765136718;
+       color.rgb = max(color.rgb, 0.0);
+       color.rgb = _const_1_1 * pow(color.rgb + vec3(_const_0_1), vec3(2.4));
+       return color;
+}
+#endif
+
 vec4 hook() {
 	vec2 dx = vec2(1.0 / MAIN_size.x, 0.0);
 	vec2 dy = vec2(1.0 / MAIN_size.x, 0.0);
 
-	vec3 c0 = MAIN_tex(MAIN_pos).rgb;
-	vec3 c1 = MAIN_tex(MAIN_pos - dx).rgb;
-	vec3 c2 = MAIN_tex(MAIN_pos + dx).rgb;
-	vec3 c3 = MAIN_tex(MAIN_pos - dy).rgb;
-	vec3 c4 = MAIN_tex(MAIN_pos + dy).rgb;
+	vec3 c0 = linearize(MAIN_tex(MAIN_pos)).rgb;
+	vec3 c1 = linearize(MAIN_tex(MAIN_pos - dx)).rgb;
+	vec3 c2 = linearize(MAIN_tex(MAIN_pos + dx)).rgb;
+	vec3 c3 = linearize(MAIN_tex(MAIN_pos - dy)).rgb;
+	vec3 c4 = linearize(MAIN_tex(MAIN_pos + dy)).rgb;
 
 	vec3 color = (2.5 * c0 + c1 + c2 + c3 + c4) / 6.5;
 
@@ -115,6 +126,17 @@ vec4 hook() {
 #define VIGNETTE_STRENGTH     0.0    // between 0.0 and 2.0
 #define VIGNETTE_SIZE         1.0    // between 0.5 and 3.0
 
+#ifndef linearize
+// Implementation from mpv's gpu-next
+vec4 linearize(vec4 color) {
+       const float _const_0_1 = 0.05958483740687370300;
+       const float _const_1_1 = 0.87031054496765136718;
+       color.rgb = max(color.rgb, 0.0);
+       color.rgb = _const_1_1 * pow(color.rgb + vec3(_const_0_1), vec3(2.4));
+       return color;
+}
+#endif
+
 vec3 fix_lut(vec3 lutcolor, vec3 ref) {
 	float r = length(ref);
 	float l = length(lutcolor);
@@ -142,7 +164,7 @@ float contrast(float x) {
 }
 
 vec4 hook() {
-	vec4 imgColor = MAIN_tex(MAIN_pos);
+	vec4 imgColor = linearize(MAIN_tex(MAIN_pos));
 	vec4 aftglow = AFTERGLOW0_tex(AFTERGLOW0_pos);
 	float w = 1.0 - aftglow.w;
 	float l = length(aftglow.rgb);
@@ -1648,6 +1670,17 @@ vec4 hook() {
 #define noisetype   0.0 // 0.0 1.0 1.0
 #define post_br   1.0 // 0.25 5.0 0.01
 
+#ifndef delinearize
+// Implementation from mpv's gpu-next
+vec4 delinearize(vec4 color) {
+       const float _const_0_2 = 0.05958483740687370300;
+       const float _const_1_2 = 1.14901518821716308593;
+       color.rgb = max(color.rgb, 0.0);
+       color.rgb = pow(_const_1_2 * color.rgb, vec3(1.0/2.4)) - vec3(_const_0_2);
+       return color;
+}
+#endif
+
 // Shadow mask (1-4 from PD CRT Lottes shader).
 
 vec3 Mask(vec2 pos, float mx, float mb)
@@ -2174,5 +2207,5 @@ else{
 	colmx = max(max(orig1.r,orig1.g),orig1.b);
 	color = color + bmask*mix(cmask2, 0.125*(1.0-colmx)*color, min(20.0*colmx, 1.0));
 
-	return vec4(color*vig*humbar(mix(pos.y, pos.x, bardir))*post_br*corner(pos0), 1.0);
+	return delinearize(vec4(color*vig*humbar(mix(pos.y, pos.x, bardir))*post_br*corner(pos0), 1.0));
 }
