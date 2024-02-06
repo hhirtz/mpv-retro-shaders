@@ -919,6 +919,7 @@ float chroma_filter_2_phase[33] = float[33](
 	return FragColor;
 }
 
+
 //!HOOK MAIN
 //!SAVE NTSC3
 //!BIND MAIN
@@ -926,68 +927,111 @@ float chroma_filter_2_phase[33] = float[33](
 //!BIND NTSC2
 //!WIDTH NTSC2.w
 //!HEIGHT NTSC2.h
-//!DESC CRT Guest Advanced NTSC -- NTSC third pass
+//!DESC CRT Guest Advanced NTSC -- NPass3
 
 // Parameters
 #define NTSC_SHARP 0.0   // between -10.0 and 10.0
 #define NTSC_SHAPE 0.75  // between 0.5 and 1.0
 #define BLEND_MODE 1     // either 0 or 1
 
-vec3 yiq2rgb(vec3 col) {
-	return col * mat3(
-		1.0, 0.956,   0.6210,
-		1.0, -0.2720, -0.6474,
-		1.0, -1.1060, 1.7046);
+// libretro <-> mpv compatibility layer
+#define COMPAT_TEXTURE(c,d) texture(c,d)
+#define Source NTSC2_raw
+#define PrePass0 AFTERGLOW_raw
+struct params_ {
+	vec4 OriginalSize;
+	vec4 SourceSize;
+	float ntsc_sharp;
+	float ntsc_shape;
+	float blendMode;
+} global = params_(
+	vec4(MAIN_size, MAIN_pt),
+	vec4(NTSC2_size, NTSC2_pt),
+	NTSC_SHARP,
+	NTSC_SHAPE,
+	float(BLEND_MODE)
+);
+vec2 vTexCoord = NTSC2_pos;
+
+const mat3 yiq2rgb_mat = mat3(
+   1.0, 0.956, 0.6210,
+   1.0, -0.2720, -0.6474,
+   1.0, -1.1060, 1.7046);
+
+vec3 yiq2rgb(vec3 yiq)
+{
+   return yiq * yiq2rgb_mat;
+}
+
+const mat3 yiq_mat = mat3(
+      0.2989, 0.5870, 0.1140,
+      0.5959, -0.2744, -0.3216,
+      0.2115, -0.5229, 0.3114
+);
+
+vec3 rgb2yiq(vec3 col)
+{
+   return col * yiq_mat;
 }
 
 vec4 hook() {
-	vec2 pos = NTSC2_pos - vec2(0.25 / NTSC2_size.x, 0.0);
+	vec4 FragColor = vec4(0.0);
 
-	vec2 offsetx = vec2(0.5 / MAIN_size.x, 0.0);
-	vec2 dx = vec2(0.5 / NTSC2_size.x, 0.0);
-	vec2 texcoord = pos + dx;
+   vec2 offsetx = vec2(0.5 * global.OriginalSize.z, 0.0);
+   vec2 dx = vec2(0.25 * global.SourceSize.z, 0.0);
+   vec2 texcoord = vTexCoord + dx;
 
-	vec3 ref = NTSC2_tex(texcoord).xyz;
-	vec3 l1 = NTSC2_tex(texcoord + offsetx).xyz;
-	vec3 l2 = NTSC2_tex(texcoord - offsetx).xyz;
-	vec3 l3 = NTSC2_tex(texcoord + 0.5 * offsetx).xyz;
-	vec3 l4 = NTSC2_tex(texcoord - 0.5 * offsetx).xyz;
+   vec3 l1  = texture(Source, texcoord +      offsetx).xyz;
+   vec3 l2  = texture(Source, texcoord -      offsetx).xyz;
+   vec3 l3  = texture(Source, texcoord + 0.50*offsetx).xyz;
+   vec3 l4  = texture(Source, texcoord - 0.50*offsetx).xyz;
+   vec3 ref = texture(Source, texcoord).xyz;
 
-	float lum1 = min(NTSC2_tex(pos - dx).a, NTSC2_tex(pos + dx).a);
-	float lum2 = max(ref.x, 0.0);
+   float lum1 = min(texture(Source, vTexCoord - dx).a, texture(Source, vTexCoord + dx).a);
+   float lum2 = max(ref.x, 0.0);
 
-	float dif = max(max(abs(l1.x-l2.x), abs(l1.y-l2.y)), max(abs(l1.z-l2.z), abs(l1.x*l1.x-l2.x*l2.x)));
-	float dff = max(max(abs(l3.x-l4.x), abs(l3.y-l4.y)), max(abs(l3.z-l4.z), abs(l3.x*l3.x-l4.x*l4.x)));
+   float dif = max(max(abs(l1.x-l2.x), abs(l1.y-l2.y)), max(abs(l1.z-l2.z), abs(l1.x*l1.x-l2.x*l2.x)));
+   float dff = max(max(abs(l3.x-l4.x), abs(l3.y-l4.y)), max(abs(l3.z-l4.z), abs(l3.x*l3.x-l4.x*l4.x)));
 
-	float lc = (1.0-smoothstep(0.10, 0.20, abs(lum2-lum1)))*pow(dff, 0.125);
-	float sweight = smoothstep(0.05-0.03*lc, 0.45 - 0.40*lc, dif);
-	vec3 signal = ref;
+   float lc = (1.0-smoothstep(0.10, 0.20, abs(lum2-lum1)))*pow(dff, 0.125);
 
-	float lummix = mix(lum2, lum1, 0.1*abs(NTSC_SHARP));
-	float lm1 =  mix(lum2*lum2, lum1*lum1, 0.1*abs(NTSC_SHARP)); lm1 = sqrt(lm1);
-	float lm2 =  mix(sqrt(lum2), sqrt(lum1), 0.1*abs(NTSC_SHARP)); lm2 = lm2*lm2;
+   float sweight = smoothstep(0.05-0.03*lc, 0.45 - 0.40*lc, dif);
 
-	float k1 = abs(lummix - lm1) + 0.00001;
-	float k2 = abs(lummix - lm2) + 0.00001;
+   vec3 signal = ref;
 
-	lummix = min((k2*lm1 + k1*lm2)/(k1+k2), 1.0);
+   if (abs(global.ntsc_sharp) > -0.1)
+   {
+	  float lummix = mix(lum2, lum1, 0.1*abs(global.ntsc_sharp));
+      float lm1 =  mix(lum2*lum2, lum1*lum1, 0.1*abs(global.ntsc_sharp)); lm1 = sqrt(lm1);
+      float lm2 =  mix(sqrt(lum2), sqrt(lum1), 0.1*abs(global.ntsc_sharp)); lm2 = lm2*lm2;
 
-	signal.x = mix(lum2, lummix, smoothstep(0.25, 0.4, pow(dff, 0.125)));
-	signal.x = min(signal.x, max(NTSC_SHAPE*signal.x, lum2));
+	  float k1 = abs(lummix - lm1) + 0.00001;
+	  float k2 = abs(lummix - lm2) + 0.00001;
 
-	vec3 rgb = signal;
-	if (NTSC_SHARP < -0.1) {
-		rgb.x = mix(ref.x, rgb.x, sweight);
-	}
+	  lummix = min((k2*lm1 + k1*lm2)/(k1+k2), 1.0);
 
-	rgb = clamp(yiq2rgb(rgb), 0.0, 1.0);
+	  signal.x = mix(lum2, lummix, smoothstep(0.25, 0.4, pow(dff, 0.125)));
+	  signal.x = min(signal.x, max(global.ntsc_shape*signal.x, lum2));
+   }
+   else    signal.x = clamp(signal.x, -1.0, 1.0);
 
-	if (BLEND_MODE == 0) {
-		vec3 orig = AFTERGLOW_tex(pos).rgb;
-		rgb = normalize(rgb + 0.00001) * min(length(rgb), length(orig));
-	}
+   vec3 rgb = signal;
+   if (global.ntsc_sharp < -0.1)
+   {
+      rgb.x = mix(ref.x, rgb.x, sweight);
+   }
 
-	return vec4(rgb, 1.0);
+   rgb = clamp(yiq2rgb(rgb), 0.0, 1.0);
+
+   if (global.blendMode < 0.5)
+   {
+      vec3 orig = texture(PrePass0, vTexCoord).rgb;
+      rgb = normalize(rgb + 0.00001) * min(length(rgb), length(orig));
+   }
+
+   FragColor = vec4(rgb, 1.0);
+
+	return FragColor;
 }
 
 //!HOOK MAIN
