@@ -1034,42 +1034,56 @@ vec4 hook() {
 	return FragColor;
 }
 
+
 //!HOOK MAIN
 //!SAVE FASTSHARPEN
 //!BIND NTSC3
 //!WIDTH NTSC3.w
 //!HEIGHT NTSC3.h
-//!DESC CRT Guest Advanced NTSC -- Sharpen
+//!DESC CRT Guest Advanced NTSC -- NtscPass
 
 // Parameters
 #define CSHARPEN  0.0   // between 0.0 and 5.0
 #define CCONTRAST 0.05  // between 0.0 and 0.25
 #define CDETAILS  1.0   // between 0.0 and 1.0
 
+// libretro <-> mpv compatibility layer
+#define COMPAT_TEXTURE(c,d) texture(c,d)
+#define Source NTSC3_raw
+struct params_ {
+	vec4 SourceSize;
+} params = params_(
+	vec4(NTSC3_size, NTSC3_pt)
+);
+#define CCONTR CCONTRAST
+vec2 vTexCoord = NTSC3_pos;
+
 vec4 hook() {
-	vec2 g01 = vec2(-1.0, 0.0) * vec2(1.0 / NTSC3_size.x, 1.0 / NTSC3_size.y);
-	vec2 g21 = vec2( 1.0, 0.0) * vec2(1.0 / NTSC3_size.x, 1.0 / NTSC3_size.y);
+	vec4 FragColor = vec4(0.0);
 
-	vec3 c01 = NTSC3_tex(NTSC3_pos + g01).rgb;
-	vec3 c21 = NTSC3_tex(NTSC3_pos + g21).rgb;
-	vec3 c11 = NTSC3_tex(NTSC3_pos).rgb;
+	vec2 g01 = vec2(-1.0, 0.0)*params.SourceSize.zw;
+	vec2 g21 = vec2( 1.0, 0.0)*params.SourceSize.zw;
 
-	vec3 b11 = 0.5 * (c01 + c21);
+	vec3 c01 = texture(Source, vTexCoord + g01).rgb;
+	vec3 c21 = texture(Source, vTexCoord + g21).rgb;
+	vec3 c11 = texture(Source, vTexCoord      ).rgb;
 
-	float contrast = mix(
-		2.0 * CCONTRAST,
-		CCONTRAST,
-		max(max(c11.r, c11.g), c11.b));
+	vec3 b11 = 0.5*(c01+c21);
 
-	vec3 mn1 = min(min(c01, c21), c11 * (1.0 - contrast));
-	vec3 mx1 = max(max(c01, c21), c11 * (1.0 + contrast));
+	float contrast = max(max(c11.r,c11.g),c11.b);
+	contrast = mix(2.0*CCONTR, CCONTR, contrast);
 
-	vec3 dif = pow(mx1 - mn1 + 0.0001, vec3(0.75));
-	vec3 sharpen = mix(vec3(CSHARPEN * CDETAILS), vec3(CSHARPEN), dif);
+	vec3 mn1 = min(c01,c21); mn1 = min(mn1,c11*(1.0-contrast));
+	vec3 mx1 = max(c01,c21); mx1 = max(mx1,c11*(1.0+contrast));
 
-	c11 = clamp(mix(c11, b11, -sharpen), mn1, mx1);
+	vec3 dif = pow(mx1-mn1+0.0001, vec3(0.75,0.75,0.75));
+	vec3 sharpen = mix(vec3(CSHARPEN*CDETAILS), vec3(CSHARPEN), dif);
 
-	return vec4(c11, 1.0);
+	c11 = clamp(mix(c11,b11,-sharpen), mn1,mx1);
+
+	FragColor = vec4(c11,1.0);
+
+	return FragColor;
 }
 
 //!HOOK MAIN
