@@ -18,7 +18,13 @@
 // You should have received a copy of the GNU General Public License along
 // with this program; if not, see <https://www.gnu.org/licenses/>
 
+
+// Original shader is located at:
+// https://github.com/libretro/slang-shaders/blob/5b4c9b2a75aba5f57fcb5b68662a06f0ed7c929f/crt/crt-guest-advanced-ntsc.slangp
+
+
 // TODO check filter_linear values and how to enforce them in MPV
+
 
 //!HOOK MAIN
 //!SAVE AFTERGLOW0
