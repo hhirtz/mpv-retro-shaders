@@ -1409,40 +1409,64 @@ vec4 hook() {
 	return FragColor;
 }
 
+
 //!HOOK MAIN
 //!SAVE HBLUR
 //!BIND MAIN
 //!BIND INTERLACE
+//!BIND NTSCA1
 //!WIDTH 800.0
 //!HEIGHT INTERLACE.h
-//!COMPONENTS 4
 //!DESC CRT Guest Advanced NTSC -- Horizontal gaussian blur
 
 // Parameters
-#define M_GLOW        false  // boolean
-#define M_GLOW_CUTOFF 0.12   // between 0.0 and 0.4
-#define M_GLOW_LOW    0.35   // between 0.0 and 7.0
-#define M_GLOW_HIGH   5.0    // between 0.0 and 7.0
-#define M_GLOW_DIST   1.0    // between 0.2 and 4.0
-#define M_GLOW_MASK   1.0    // between 0.0 and 2.0
-#define SIZEH         6.0    // between 1.0 and 50.0
-#define SIGMA_H       1.2    // between 0.2 and 15.0
+#define MAGIC_GLOW                 false  // boolean
+#define MAGIC_GLOW_CUTOFF          0.12   // between 0.0 and 0.4
+#define MAGIC_GLOW_LOW_STRENGTH    0.35   // between 0.0 and 7.0
+#define MAGIC_GLOW_HIGH_STRENGTH   5.0    // between 0.0 and 7.0
+#define MAGIC_GLOW_DISTRIBUTION    1.0    // between 0.2 and 4.0
+#define MAGIC_GLOW_MASK_STRENGTH   1.0    // between 0.0 and 2.0
+#define HORIZONTAL_GLOW_RADIUS     6.0    // between 1.0 and 50.0
+#define HORIZONTAL_GLOW_SIGMA      1.2    // between 0.2 and 15.0
 
-float gaussian(float x) {
-	const float invsqrsigma = 1.0/(2.0*SIGMA_H*SIGMA_H);
+// libretro <-> mpv compatibility layer
+#define COMPAT_TEXTURE(c,d) texture(c,d)
+#define LinearizePass INTERLACE_raw
+struct params_ {
+	vec4 OriginalSize;
+} params = params_(
+	vec4(MAIN_size, MAIN_pt)
+);
+#define m_glow float(MAGIC_GLOW)
+#define m_glow_cutoff MAGIC_GLOW_CUTOFF
+#define m_glow_low MAGIC_GLOW_LOW_STRENGTH
+#define m_glow_high MAGIC_GLOW_HIGH_STRENGTH
+#define m_glow_dist MAGIC_GLOW_DISTRIBUTION
+#define m_glow_mask MAGIC_GLOW_MASK_STRENGTH
+#define SIZEH HORIZONTAL_GLOW_RADIUS
+#define SIGMA_H HORIZONTAL_GLOW_SIGMA
+vec2 vTexCoord = NTSCA1_pos;
+
+float invsqrsigma = 1.0/(2.0*SIGMA_H*SIGMA_H);
+
+float gaussian(float x)
+{
 	return exp(-x*x*invsqrsigma);
 }
 
-vec3 plant (vec3 tar, float r) {
+vec3 plant (vec3 tar, float r)
+{
 	float t = max(max(tar.r,tar.g),tar.b) + 0.00001;
 	return tar * r / t;
 }
 
 vec4 hook() {
-	vec4 SourceSize1 = vec4(MAIN_size, 1.0 / MAIN_size.x, 1.0 / MAIN_size.y);
-	float f = fract(SourceSize1.x * INTERLACE_pos.x);
+	vec4 FragColor = vec4(0.0);
+
+	vec4 SourceSize1 = params.OriginalSize;
+	float f = fract(SourceSize1.x * vTexCoord.x);
 	f = 0.5 - f;
-	vec2 tex = floor(SourceSize1.xy * INTERLACE_pos)*SourceSize1.zw + 0.5*SourceSize1.zw;
+	vec2 tex = floor(SourceSize1.xy * vTexCoord)*SourceSize1.zw + 0.5*SourceSize1.zw;
 	vec3 color = vec3(0.0);
 	vec2 dx  = vec2(SourceSize1.z, 0.0);
 
@@ -1453,11 +1477,11 @@ vec4 hook() {
 
 	do
 	{
-		pixel  = INTERLACE_tex(tex + n*dx).rgb;
-		if (M_GLOW)
+		pixel  = COMPAT_TEXTURE(LinearizePass, tex + n*dx).rgb;
+		if (m_glow > 0.5)
 		{
-			pixel = max(pixel-M_GLOW_CUTOFF, 0.0);
-			pixel = plant(pixel, max(max(max(pixel.r,pixel.g),pixel.b)-M_GLOW_CUTOFF,0.0));
+			pixel = max(pixel-m_glow_cutoff, 0.0);
+			pixel = plant(pixel, max(max(max(pixel.r,pixel.g),pixel.b)-m_glow_cutoff,0.0));
 		}
 		w      = gaussian(n+f);
 		color  = color + w * pixel;
@@ -1468,7 +1492,9 @@ vec4 hook() {
 
 	color = color / wsum;
 
-	return vec4(color, 1.0);
+	FragColor = vec4(color, 1.0);
+
+	return FragColor;
 }
 
 //!HOOK MAIN
