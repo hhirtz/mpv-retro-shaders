@@ -418,6 +418,7 @@ vec4 hook() {
 	return FragColor;
 }
 
+
 //!HOOK MAIN
 //!SAVE NTSC1
 //!BIND MAIN
@@ -425,7 +426,7 @@ vec4 hook() {
 //!WIDTH 4.0 MAIN.w *
 //!HEIGHT MAIN.h
 //!COMPONENTS 4
-//!DESC CRT Guest Advanced NTSC -- NTSC first pass
+//!DESC CRT Guest Advanced NTSC -- NPass1
 
 // Parameters
 #define CUST_ARTIFACTING 1.0  // between 0.0 and 5.0
@@ -436,99 +437,139 @@ vec4 hook() {
 #define NTSC_SATURATION  1.0  // between 0.0 and 2.0
 #define NTSC_SCALE       1.0  // between 0.2 and 2.5
 
-#define PI 3.14159265358979323846264338327950288
+// libretro <-> mpv compatibility layer
+#define COMPAT_TEXTURE(c,d) texture(c,d)
+#define vTexCoord MAIN_pos
+#define Source AFTERGLOW_raw
+struct params_ {
+	vec4 OriginalSize;
+	uint FrameCount;
+	float ntsc_scale;
+	float ntsc_phase;
+} global = params_(
+	vec4(MAIN_size, MAIN_pt),
+	uint(frame),
+	NTSC_SCALE,
+	float(NTSC_PHASE)
+);
+#define FRINGING CUST_FRINGING
+#define ARTIFACTING CUST_ARTIFACTING
+#define BRIGHTNESS NTSC_BRIGHTNESS
+#define SATURATION NTSC_SATURATION
 
-vec3 rgb2yiq(vec3 col) {
-	return col * mat3(
-		0.2989, 0.5870,  0.1140,
-		0.5959, -0.2744, -0.3216,
-		0.2115, -0.5229, 0.3114);
+#define PI 3.14159265
+
+#define mix_mat  mat3(BRIGHTNESS, FRINGING, FRINGING, ARTIFACTING, 2.0 * SATURATION, 0.0, ARTIFACTING, 0.0, 2.0 * SATURATION)
+
+const mat3 yiq2rgb_mat = mat3(
+   1.0, 0.956, 0.6210,
+   1.0, -0.2720, -0.6474,
+   1.0, -1.1060, 1.7046);
+
+vec3 yiq2rgb(vec3 yiq)
+{
+   return yiq * yiq2rgb_mat;
 }
 
-const mat3 mix_mat = mat3(
-	NTSC_BRIGHTNESS,  CUST_FRINGING,         CUST_FRINGING,
-	CUST_ARTIFACTING, 2.0 * NTSC_SATURATION, 0.0,
-	CUST_ARTIFACTING, 0.0,                   2.0 * NTSC_SATURATION);
+const mat3 yiq_mat = mat3(
+      0.2989, 0.5870, 0.1140,
+      0.5959, -0.2744, -0.3216,
+      0.2115, -0.5229, 0.3114
+);
+
+vec3 rgb2yiq(vec3 col)
+{
+   return col * yiq_mat;
+}
 
 vec4 hook() {
+	// Vertex shader
+
 	float ntsc_scale = min(NTSC_SCALE, 1.0);
 	vec2 pix_no = AFTERGLOW_pos * AFTERGLOW_size * (ntsc_scale * target_size / AFTERGLOW_size);
 	float phase = (NTSC_PHASE <= 1)
 		? ((MAIN_size.x > 300.0) ? 2 : 3)
 		: ((NTSC_PHASE >= 3) ? 3 : 2);
-	float chroma_mod_freq = (phase <= 2)
+	float CHROMA_MOD_FREQ = (phase <= 2)
 		? 4.0 * PI / 15.0
 		: PI / 3.0;
-	bool merge = (NTSC_FIELDS == -1 && phase == 3) || (NTSC_FIELDS == 1);
+	float MERGE = float((NTSC_FIELDS == -1 && phase == 3) || (NTSC_FIELDS == 1));
 
-	vec3 col = AFTERGLOW_tex(AFTERGLOW_pos).rgb;
-	vec3 yiq = rgb2yiq(col);
-	float lum = yiq.x;
+	// Fragment shader
 
-	if (NTSC_PHASE == 4) {
-		vec2 dx = vec2(1.0 / MAIN_size.x, 0.0);
-		vec3 c1 = AFTERGLOW_tex(AFTERGLOW_pos - dx).rgb;
-		vec3 c2 = AFTERGLOW_tex(AFTERGLOW_pos + dx).rgb;
-		c1 = rgb2yiq(c1);
-		c2 = rgb2yiq(c2);
-		yiq.x = mix(
-			min(0.5 * (yiq.x + max(c1.x, c2.x)), max(yiq.x, min(c1.x, c2.x))),
-			yiq.x,
-			5.0 * min(abs(c1.x - c2.x), 1.0));
-	}
+	vec4 FragColor = vec4(0.0);
 
-	vec3 yiq2 = yiq;
+   float res = global.ntsc_scale;
+   vec3 col = texture(Source, vTexCoord).rgb;
 
-	if (merge) {
-		float chroma_phase2 = (phase <= 2)
-			? PI * (mod(pix_no.y, 2.0) + 1 - (frame % 2))
-			: 2.0 / 3.0 * PI * mod(pix_no.y, 3.0) + (frame % 2);
-		float mod_phase2 = chroma_phase2 + pix_no.x * chroma_mod_freq;
-		float i_mod2 = cos(mod_phase2);
-		float q_mod2 = sin(mod_phase2);
-		yiq2.yz *= vec2(i_mod2, q_mod2);
-		yiq2 *= mix_mat;
-		yiq2.yz *= vec2(i_mod2, q_mod2);
+   vec3 yiq = rgb2yiq(col);
+   float lum = yiq.x;
 
-		if (NTSC_SCALE > 1.025) {
-			mod_phase2 = chroma_phase2 + pix_no.x * chroma_mod_freq * NTSC_SCALE;
-			i_mod2 = cos(mod_phase2);
-			q_mod2 = sin(mod_phase2);
-			vec3 yiqs = yiq;
-			yiqs.yz *= vec2(i_mod2, q_mod2);
-			yiq2.x = dot(yiqs, mix_mat[0]);
-		}
-	}
+if (global.ntsc_phase == 4.0)
+{
+   vec2 dx = vec2(global.OriginalSize.z, 0.0);
+   vec3 c1 = texture(Source, vTexCoord - dx).rgb;
+   vec3 c2 = texture(Source, vTexCoord + dx).rgb;
+   c1 = rgb2yiq(c1);
+   c2 = rgb2yiq(c2);
+   yiq.x = mix(min(0.5*(yiq.x + max(c1.x,c2.x)), max(yiq.x , min(c1.x,c2.x))), yiq.x, 5.0*min(abs(c1.x-c2.x),1.0));
+}
+   vec3 yiq2 = yiq;
+   vec3 yiqs = yiq;
+   vec3 yiqz = yiq;
 
-	float chroma_phase = (phase <= 2)
-		? PI * (mod(pix_no.y, 2.0) + (frame % 2))
-		: 2.0 / 3.0 * PI * mod(pix_no.y, 3.0) + (frame % 2);
-	float mod_phase = chroma_phase + pix_no.x * chroma_mod_freq;
-	float i_mod = cos(mod_phase);
-	float q_mod = sin(mod_phase);
-	yiq2.yz *= vec2(i_mod, q_mod);
-	yiq2 *= mix_mat;
-	yiq2.yz *= vec2(i_mod, q_mod);
+   float mod1 = 2.0;
+   float mod2 = 3.0;
 
-	if (NTSC_SCALE > 1.025) {
-		mod_phase = chroma_phase + pix_no.x * chroma_mod_freq * NTSC_SCALE;
-		i_mod = cos(mod_phase);
-		q_mod = sin(mod_phase);
-		vec3 yiqs = yiq;
-		yiqs.yz *= vec2(i_mod, q_mod);
-		yiq2.x = dot(yiqs, mix_mat[0]);
-	}
+if (MERGE > 0.5)
+{
+   float chroma_phase2 = (phase < 2.5) ? PI * (mod(pix_no.y, mod1) + mod(global.FrameCount+1, 2.)) : 0.6667 * PI * (mod(pix_no.y, mod2) + mod(global.FrameCount+1, 2.));
+   float mod_phase2 = chroma_phase2 + pix_no.x * CHROMA_MOD_FREQ;
+   float i_mod2 = cos(mod_phase2);
+   float q_mod2 = sin(mod_phase2);
+   yiq2.yz *= vec2(i_mod2, q_mod2); // Modulate.
+   yiq2 *= mix_mat; // Cross-talk.
+   yiq2.yz *= vec2(i_mod2, q_mod2); // Demodulate.
 
-	if (NTSC_PHASE == 4) {
-		yiq.x = lum;
-		yiq2.x = lum;
-	}
+   if (res > 1.025)
+   {
+      mod_phase2 = chroma_phase2 + pix_no.x * CHROMA_MOD_FREQ * res;
+      i_mod2 = cos(mod_phase2);
+      q_mod2 = sin(mod_phase2);
+      yiqs.yz *= vec2(i_mod2, q_mod2); // Modulate.
+      yiq2.x = dot(yiqs, mix_mat[0]);  // Cross-talk.
+   }
+}
 
-	if (merge) {
-		yiq = (yiq + yiq2) * 0.5;
-	}
+   float chroma_phase = (phase < 2.5) ? PI * (mod(pix_no.y, mod1) + mod(global.FrameCount, 2.)) : 0.6667 * PI * (mod(pix_no.y, mod2) + mod(global.FrameCount, 2.));
+   float mod_phase = chroma_phase + pix_no.x * CHROMA_MOD_FREQ;
 
-	return vec4(yiq, lum);
+   float i_mod = cos(mod_phase);
+   float q_mod = sin(mod_phase);
+
+   yiq.yz *= vec2(i_mod, q_mod); // Modulate.
+   yiq *= mix_mat; // Cross-talk.
+   yiq.yz *= vec2(i_mod, q_mod); // Demodulate.
+
+    if (res > 1.025)
+   {
+      mod_phase = chroma_phase + pix_no.x * CHROMA_MOD_FREQ * res;
+      i_mod = cos(mod_phase);
+      q_mod = sin(mod_phase);
+      yiqz.yz *= vec2(i_mod, q_mod); // Modulate.
+      yiq.x = dot(yiqz, mix_mat[0]); // Cross-talk.
+   }
+
+if (global.ntsc_phase == 4.0)
+{
+	yiq.x = lum; yiq2.x = lum;
+}
+
+   yiq = (MERGE < 0.5) ? yiq : 0.5*(yiq+yiq2);
+
+   FragColor = vec4(yiq, lum);
+
+	return FragColor;
 }
 
 //!HOOK MAIN
