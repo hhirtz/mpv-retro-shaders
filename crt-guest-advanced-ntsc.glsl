@@ -1166,6 +1166,7 @@ vec4 hook() {
 	return FragColor;
 }
 
+
 //!HOOK MAIN
 //!SAVE INTERLACE
 //!BIND MAIN
@@ -1174,7 +1175,7 @@ vec4 hook() {
 //!WIDTH AVGLUM.w
 //!HEIGHT AVGLUM.h
 //!COMPONENTS 4
-//!DESC CRT Guest Advanced NTSC -- Interlacing
+//!DESC CRT Guest Advanced NTSC -- LinearizePass
 
 // Parameters
 #define DOWNSAMPLE_LEVEL_X     0.0    // between 0.0 and 2.0
@@ -1187,85 +1188,112 @@ vec4 hook() {
 #define INTERLACING_SCAN       0.2    // between 0.0 and 1.0
 #define INTERNAL_RESOLUTION    0.0    // between 0.0 and 6.0
 
-vec3 plant(vec3 tar, float r) {
-	float t = max(max(tar.r, tar.g), tar.b) + 0.00001;
+// libretro <-> mpv compatibility layer
+#define COMPAT_TEXTURE(c,d) texture(c,d)
+#define Source AVGLUM_raw
+#define NtscPass FASTSHARPEN_raw
+struct global_ {
+	vec4 SourceSize;
+} global = global_(
+	vec4(AVGLUM_size, AVGLUM_pt)
+);
+struct params_ {
+	vec4 OriginalSize;
+	uint FrameCount;
+} params = params_(
+	vec4(MAIN_size, MAIN_pt),
+	uint(frame)
+);
+#define downsample_levelx DOWNSAMPLE_LEVEL_X
+#define downsample_levely DOWNSAMPLE_LEVEL_Y
+#define gamma_out GAMMA_OUTPUT
+#define interm float(INTERLACING_MODE)
+#define inter INTERLACING_RESOLUTION
+#define iscans INTERLACING_SATURATION
+#define iscan INTERLACING_SCAN
+#define intres INTERNAL_RESOLUTION
+vec2 vTexCoord = AVGLUM_pos * 1.00001;
+
+vec3 plant (vec3 tar, float r)
+{
+	float t = max(max(tar.r,tar.g),tar.b) + 0.00001;
 	return tar * r / t;
 }
 
-vec3 fetch_pixel(vec2 coord) {
-	vec2 dx = vec2(1.0 / AVGLUM_size.x, 0.0) * DOWNSAMPLE_LEVEL_X;
-	vec2 dy = vec2(0.0, 1.0 / AVGLUM_size.y) * DOWNSAMPLE_LEVEL_Y;
+
+vec3 fetch_pixel(vec2 coord)
+{
+	vec2 dx = vec2(global.SourceSize.z, 0.0) * downsample_levelx;
+	vec2 dy = vec2(0.0, global.SourceSize.w) * downsample_levely;
 	vec2 d1 = dx + dy;
 	vec2 d2 = dx - dy;
 
-	return (3.0 * FASTSHARPEN_tex(coord).rgb
-		+ 2.0 * FASTSHARPEN_tex(coord + dx).rgb
-		+ 2.0 * FASTSHARPEN_tex(coord - dx).rgb
-		+ 2.0 * FASTSHARPEN_tex(coord + dy).rgb
-		+ 2.0 * FASTSHARPEN_tex(coord - dy).rgb
-		+ FASTSHARPEN_tex(coord + d1).rgb
-		+ FASTSHARPEN_tex(coord - d1).rgb
-		+ FASTSHARPEN_tex(coord + d2).rgb
-		+ FASTSHARPEN_tex(coord - d2).rgb) / 15.0;
+	float sum = 15.0;
+	vec3 result = 3.0*COMPAT_TEXTURE(NtscPass, coord     ).rgb +
+	              2.0*COMPAT_TEXTURE(NtscPass, coord + dx).rgb +
+	              2.0*COMPAT_TEXTURE(NtscPass, coord - dx).rgb +
+	              2.0*COMPAT_TEXTURE(NtscPass, coord + dy).rgb +
+	              2.0*COMPAT_TEXTURE(NtscPass, coord - dy).rgb +
+	              COMPAT_TEXTURE(NtscPass, coord + d1).rgb +
+	              COMPAT_TEXTURE(NtscPass, coord - d1).rgb +
+	              COMPAT_TEXTURE(NtscPass, coord + d2).rgb +
+	              COMPAT_TEXTURE(NtscPass, coord - d2).rgb;
+
+	return result/sum;
 }
 
 vec4 hook() {
-	vec2 pos = AVGLUM_pos * 1.00001;
+	vec4 FragColor = vec4(0.0);
 
-	vec3 c1 = FASTSHARPEN_tex(pos).rgb;
-	vec3 c2 = FASTSHARPEN_tex(pos + vec2(0.0, 1.0 / MAIN_size.y)).rgb;
+	vec3 c1 = COMPAT_TEXTURE(NtscPass, vTexCoord).rgb;
+	vec3 c2 = COMPAT_TEXTURE(NtscPass, vTexCoord + vec2(0.0, params.OriginalSize.w)).rgb;
 
-	if ((DOWNSAMPLE_LEVEL_X + DOWNSAMPLE_LEVEL_Y) > 0.025) {
-		c1 = fetch_pixel(pos);
-		c2 = fetch_pixel(pos + vec2(0.0, 1.0 / MAIN_size.y));
+	if ((downsample_levelx + downsample_levely) > 0.025)
+	{
+		c1 = fetch_pixel(vTexCoord);
+		c2 = fetch_pixel(vTexCoord + vec2(0.0, params.OriginalSize.w));
 	}
 
-	vec3 c = c1;
+	vec3  c  = c1;
 
 	float intera = 1.0;
 	float gamma_in = clamp(GAMMA_INPUT, 1.0, 5.0);
 
-	float m1 = max(max(c1.r, c1.g), c1.b);
-	float m2 = max(max(c2.r, c2.g), c2.b);
-	vec3 df = abs(c1 - c2);
+	float m1 = max(max(c1.r,c1.g),c1.b);
+	float m2 = max(max(c2.r,c2.g),c2.b);
+	vec3 df = abs(c1-c2);
 
-	float d = max(max(df.r, df.g), df.b);
-	if (INTERLACING_MODE == 2.0) {
-		d = mix(0.1*d,10.0*d, step(m1/(m2+0.0001),m2/(m1+0.0001)));
-	}
+	float d = max(max(df.r,df.g),df.b);
+	if (interm == 2.0) d = mix(0.1*d,10.0*d, step(m1/(m2+0.0001),m2/(m1+0.0001)));
 
 	float r = m1;
-	float yres_div = (INTERNAL_RESOLUTION <= 1.25) ? 1.0 : INTERNAL_RESOLUTION;
 
-	if (INTERLACING_RESOLUTION <= MAIN_size.y / yres_div
-			&& INTERLACING_MODE != 0
-			&& INTERNAL_RESOLUTION != 1.0
-			&& INTERNAL_RESOLUTION != 5.0) {
-		float intera = 0.25;
-		float line_no = clamp(floor(mod(MAIN_size.y * pos.y, 2.0)), 0.0, 1.0);
-		float frame_no = float(floor(frame % 2));
-		float ii = abs(line_no - frame_no);
+	float yres_div = 1.0; if (intres > 1.25) yres_div = intres;
 
-		if (INTERLACING_MODE <= 3) {
-			c2 = plant(
-				mix(c2, c2 * c2, INTERLACING_SATURATION),
-				max(max(c2.r, c2.g), c2.b));
-			r = clamp(max(m1 * ii, (1.0 - INTERLACING_SCAN) * min(m1, m2)), 0.0, 1.0);
-			c = (INTERLACING_MODE == 3)
-				? (1.0 - 0.5 * INTERLACING_SCAN) * mix(c2, c1, ii)
-				: plant(mix(mix(c1,c2, min(mix(m1, 1.0-m2, min(m1,1.0-m1))/(d+0.00001),1.0)), c1, ii), r);
-		} else if (INTERLACING_MODE == 4) {
-			c = plant(mix(c, c*c, 0.5*INTERLACING_SATURATION), max(max(c.r,c.g),c.b)) * (1.0-0.5*INTERLACING_SCAN);
-		} else {
-			c = mix(c2, c1, 0.5);
-			c = plant(mix(c, c*c, 0.5*INTERLACING_SATURATION), max(max(c.r,c.g),c.b)) * (1.0-0.5*INTERLACING_SCAN);
+	if (inter <= params.OriginalSize.y/yres_div && interm > 0.5 && intres != 1.0 && intres != 0.5)
+	{
+		intera = 0.25;
+		float line_no  = clamp(floor(mod(params.OriginalSize.y*vTexCoord.y, 2.0)), 0.0, 1.0);
+		float frame_no = clamp(floor(mod(float(params.FrameCount),2.0)), 0.0, 1.0);
+		float ii = abs(line_no-frame_no);
+
+		if (interm < 3.5)
+		{
+			c2 = plant(mix(c2, c2*c2, iscans), max(max(c2.r,c2.g),c2.b));
+			r = clamp(max(m1*ii, (1.0-iscan)*min(m1,m2)), 0.0, 1.0);
+			c = plant( mix(mix(c1,c2, min(mix(m1, 1.0-m2, min(m1,1.0-m1))/(d+0.00001),1.0)), c1, ii), r);
+			if (interm == 3.0) c = (1.0-0.5*iscan)*mix(c2, c1, ii);
 		}
+		if (interm == 4.0) { c = plant(mix(c, c*c, 0.5*iscans), max(max(c.r,c.g),c.b)) * (1.0-0.5*iscan); }
+		if (interm == 5.0) { c = mix(c2, c1, 0.5); c = plant(mix(c, c*c, 0.5*iscans), max(max(c.r,c.g),c.b)) * (1.0-0.5*iscan); }
 	}
 	c = pow(c, vec3(gamma_in));
 
-	gamma_in = (pos.x > 0.5) ? intera : 1.0 / gamma_in;
+	if (vTexCoord.x > 0.5) gamma_in = intera; else gamma_in = 1.0/gamma_in;
 
-	return vec4(c, gamma_in);
+	FragColor = vec4(c, gamma_in);
+
+	return FragColor;
 }
 
 //!HOOK MAIN
