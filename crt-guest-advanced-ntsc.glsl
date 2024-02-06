@@ -1641,31 +1641,51 @@ vec4 hook() {
 //!HOOK MAIN
 //!SAVE VBLOOM
 //!BIND MAIN
-//!BIND INTERLACE
 //!BIND HBLOOM
 //!WIDTH 800.0
 //!HEIGHT 600.0
 //!COMPONENTS 4
-//!DESC CRT Guest Advanced NTSC -- Vertical bloom
+//!DESC CRT Guest Advanced NTSC -- BloomPass
 
 // Parameters
-#define FINE_BLOOM   1.0  // between 1.0 and 4.0
-#define SIZEVB       3.0  // between 1.0 and 50.0
-#define SIGMA_VB     0.6  // between 0.25 and 15.0
-#define BLOOMCUT_V   0.0  // between -0.5 and 0.5
+#define FINE_BLOOM_SAMPLING      1.0  // between 1.0 and 4.0
+#define VERTICAL_BLOOM_RADIUS    3.0  // between 1.0 and 50.0
+#define VERTICAL_BLOOM_SIGMA     0.6  // between 0.25 and 15.0
+#define VERTICAL_BLOOM_SUBSTRACT 0.0  // between -0.5 and 0.5
 
-float gaussian(float x) {
-	const float invsqrsigma = 1.0/(2.0*SIGMA_VB*SIGMA_VB);
+// libretro <-> mpv compatibility layer
+#define COMPAT_TEXTURE(c,d) texture(c,d)
+#define Source HBLOOM_raw
+struct params_ {
+	vec4 SourceSize;
+	vec4 OriginalSize;
+} params = params_(
+	vec4(HBLOOM_size, HBLOOM_pt),
+	vec4(MAIN_size, MAIN_pt)
+);
+#define FINE_BLOOM FINE_BLOOM_SAMPLING
+#define SIZEVB VERTICAL_BLOOM_RADIUS
+#define SIGMA_VB VERTICAL_BLOOM_SIGMA
+#define BLOOMCUT_V VERTICAL_BLOOM_SUBSTRACT
+vec2 vTexCoord = HBLOOM_pos;
+
+float invsqrsigma = 1.0/(2.0*SIGMA_VB*SIGMA_VB);
+
+float gaussian(float x)
+{
 	return exp(-x*x*invsqrsigma);
 }
 
 vec4 hook() {
-	vec4 SourceSize1 = vec4(HBLOOM_size, 1.0 / MAIN_size.x, 1.0 / MAIN_size.y);
+	vec4 FragColor = vec4(0.0);
+
+	vec4 SourceSize1 = params.SourceSize;
+	SourceSize1.yw = params.OriginalSize.yw;
 	SourceSize1 = SourceSize1 * mix(1.0.xxxx, vec4(FINE_BLOOM, FINE_BLOOM, 1.0/FINE_BLOOM, 1.0/FINE_BLOOM), min(FINE_BLOOM-1.0,1.0));
 
-	float f = fract(SourceSize1.y * HBLOOM_pos.y);
+	float f = fract(SourceSize1.y * vTexCoord.y);
 	f = 0.5 - f;
-	vec2 tex = floor(SourceSize1.xy * HBLOOM_pos)*SourceSize1.zw + 0.5*SourceSize1.zw;
+	vec2 tex = floor(SourceSize1.xy * vTexCoord)*SourceSize1.zw + 0.5*SourceSize1.zw;
 	vec4 color = vec4(0.0);
 	vec2 dy  = vec2(0.0, SourceSize1.w);
 
@@ -1676,7 +1696,7 @@ vec4 hook() {
 
 	do
 	{
-		pixel  = HBLOOM_tex(tex + n*dy);
+		pixel  = COMPAT_TEXTURE(Source, tex + n*dy);
 		w = gaussian(n+f);
 		w      = (BLOOMCUT_V >= 0.0) ? max(w - BLOOMCUT_V, 0.0) : (max(w + BLOOMCUT_V, 0.0)/(1.0 + BLOOMCUT_V));
 		pixel.a*=pixel.a*pixel.a;
@@ -1688,7 +1708,9 @@ vec4 hook() {
 
 	color = color / wsum;
 
-	return vec4(color.rgb, pow(color.a, 0.175));
+	FragColor = vec4(color.rgb, pow(color.a, 0.175));
+
+	return FragColor;
 }
 
 //!HOOK MAIN
