@@ -30,12 +30,25 @@
 //!SAVE AFTERGLOW0
 //!BIND MAIN
 //!COMPONENTS 4
-//!DESC CRT Guest Advanced NTSC -- Afterglow0 pass
+//!DESC CRT Guest Advanced NTSC -- AfterglowPass
 
 // Parameters
 #define PERSISTENCE_RED   0.32  // between 0.0 and 0.5
 #define PERSISTENCE_GREEN 0.32  // between 0.0 and 0.5
 #define PERSISTENCE_BLUE  0.32  // between 0.0 and 0.5
+
+// libretro <-> mpv compatibility layer
+#define TEX0 MAIN_pos
+#define COMPAT_TEXTURE(c,d) texture(c,d)
+#define OriginalHistory0 MAIN_raw
+struct params_ {
+	vec4 OriginalSize;
+} params = params_(
+	vec4(MAIN_size, MAIN_pt)
+);
+#define PR PERSISTENCE_RED
+#define PG PERSISTENCE_GREEN
+#define PB PERSISTENCE_BLUE
 
 #ifndef linearize
 // Implementation from mpv's gpu-next
@@ -49,35 +62,33 @@ vec4 linearize(vec4 color) {
 #endif
 
 vec4 hook() {
-	vec2 dx = vec2(1.0 / MAIN_size.x, 0.0);
-	vec2 dy = vec2(1.0 / MAIN_size.x, 0.0);
+	vec4 FragColor = vec4(0.0);
 
-	vec3 c0 = linearize(MAIN_tex(MAIN_pos)).rgb;
-	vec3 c1 = linearize(MAIN_tex(MAIN_pos - dx)).rgb;
-	vec3 c2 = linearize(MAIN_tex(MAIN_pos + dx)).rgb;
-	vec3 c3 = linearize(MAIN_tex(MAIN_pos - dy)).rgb;
-	vec3 c4 = linearize(MAIN_tex(MAIN_pos + dy)).rgb;
+	vec2 dx = vec2(params.OriginalSize.z, 0.0);
+	vec2 dy = vec2(0.0, params.OriginalSize.w);
 
-	vec3 color = (2.5 * c0 + c1 + c2 + c3 + c4) / 6.5;
+	vec3 color0  = linearize(COMPAT_TEXTURE(OriginalHistory0, TEX0.xy)).rgb;
+	vec3 color1  = linearize(COMPAT_TEXTURE(OriginalHistory0, TEX0.xy - dx)).rgb;
+	vec3 color2  = linearize(COMPAT_TEXTURE(OriginalHistory0, TEX0.xy + dx)).rgb;
+	vec3 color3  = linearize(COMPAT_TEXTURE(OriginalHistory0, TEX0.xy - dy)).rgb;
+	vec3 color4  = linearize(COMPAT_TEXTURE(OriginalHistory0, TEX0.xy + dy)).rgb;
 
-	// TODO accumulate results from previous pass output
-	//vec3 accumulate = AFTERGLOW0_PASTOUTPUT_tex(MAIN_pos).rgb;
+	vec3 color = (2.5 * color0 + color1 + color2 + color3 + color4)/6.5;
+
+	// TODO PassFeedpack is meant to be the output of this pass at the previous frame. Change this when mpv supports this feature
+	//vec3 accumulate = COMPAT_TEXTURE(AfterglowPassFeedback, TEX0.xy).rgb;
 	vec3 accumulate = color;
 
-	float w = float(c0.r + c0.g + c0.b >= 5.0 / 255.0);
-	vec3 result = mix(
-		max(
-			mix(
-				color,
-				accumulate,
-				0.49 + vec3(PERSISTENCE_RED, PERSISTENCE_GREEN, PERSISTENCE_BLUE))
-			- 1.25 / 255.0,
-			0.0),
-		color,
-		w);
+	float w = 1.0;
+	if ((color0.r + color0.g + color0.b < 5.0/255.0)) { w = 0.0; }
 
-	return vec4(result, w);
+	vec3 result = mix( max(mix(color, accumulate, 0.49 + vec3(PR, PG, PB))- 1.25/255.0, 0.0), color, w);
+
+	FragColor = vec4(result, w);
+
+	return FragColor;
 }
+
 
 //!HOOK MAIN
 //!SAVE AFTERGLOW
