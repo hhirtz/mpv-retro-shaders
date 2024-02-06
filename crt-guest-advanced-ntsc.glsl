@@ -572,6 +572,7 @@ if (global.ntsc_phase == 4.0)
 	return FragColor;
 }
 
+
 //!HOOK MAIN
 //!SAVE NTSC2
 //!BIND MAIN
@@ -580,7 +581,7 @@ if (global.ntsc_phase == 4.0)
 //!WIDTH 0.5 NTSC1.w *
 //!HEIGHT NTSC1.h
 //!COMPONENTS 4
-//!DESC CRT Guest Advanced NTSC -- NTSC second pass
+//!DESC CRT Guest Advanced NTSC -- NPass2
 
 // Parameters
 #define NTSC_CSCALE 1.0  // between 0.2 and 2.5
@@ -588,98 +589,150 @@ if (global.ntsc_phase == 4.0)
 #define NTSC_RING   0.5  // between 0.0 and 1.0
 #define NTSC_SCALE  1.0  // between 0.2 and 2.5
 
+// libretro <-> mpv compatibility layer
+#define COMPAT_TEXTURE(c,d) texture(c,d)
+#define PrePass0 AFTERGLOW_raw
+#define Source NTSC1_raw
+struct params_ {
+	vec4 OriginalSize;
+	vec4 SourceSize;
+	float ntsc_scale;
+	float ntsc_phase;
+	float ntsc_ring;
+	float ntsc_cscale;
+} global = params_(
+	vec4(MAIN_size, MAIN_pt),
+	vec4(NTSC1_size, NTSC1_pt),
+	NTSC_SCALE,
+	float(NTSC_PHASE),
+	NTSC_RING,
+	NTSC_CSCALE
+);
+vec2 vTexCoord = NTSC1_pos;
+
+vec3 fetch_offset(float offset, float one_x)
+{
+   return vec3(texture(Source, vTexCoord + vec2((offset) * (one_x), 0.0)).x, texture(Source, vTexCoord + vec2((offset) * (one_x/global.ntsc_cscale), 0.0)).yz);
+}
+
+const mat3 yiq2rgb_mat = mat3(
+   1.0, 0.956, 0.6210,
+   1.0, -0.2720, -0.6474,
+   1.0, -1.1060, 1.7046);
+
+vec3 yiq2rgb(vec3 yiq)
+{
+   return yiq * yiq2rgb_mat;
+}
+
+const mat3 yiq_mat = mat3(
+      0.2989, 0.5870, 0.1140,
+      0.5959, -0.2744, -0.3216,
+      0.2115, -0.5229, 0.3114
+);
+
+vec3 rgb2yiq(vec3 col)
+{
+   return col * yiq_mat;
+}
+
+
 const int TAPS_2_phase = 32;
 const float luma_filter_2_phase[33] = float[33](
-	-0.000174844,
-	-0.000205844,
-	-0.000149453,
-	-0.000051693,
-	0.000000000,
-	-0.000066171,
-	-0.000245058,
-	-0.000432928,
-	-0.000472644,
-	-0.000252236,
-	0.000198929,
-	0.000687058,
-	0.000944112,
-	0.000803467,
-	0.000363199,
-	0.000013422,
-	0.000253402,
-	0.001339461,
-	0.002932972,
-	0.003983485,
-	0.003026683,
-	-0.001102056,
-	-0.008373026,
-	-0.016897700,
-	-0.022914480,
-	-0.021642347,
-	-0.008863273,
-	0.017271957,
-	0.054921920,
-	0.098342579,
-	0.139044281,
-	0.168055832,
-	0.178571429);
+   -0.000174844,
+   -0.000205844,
+   -0.000149453,
+   -0.000051693,
+   0.000000000,
+   -0.000066171,
+   -0.000245058,
+   -0.000432928,
+   -0.000472644,
+   -0.000252236,
+   0.000198929,
+   0.000687058,
+   0.000944112,
+   0.000803467,
+   0.000363199,
+   0.000013422,
+   0.000253402,
+   0.001339461,
+   0.002932972,
+   0.003983485,
+   0.003026683,
+   -0.001102056,
+   -0.008373026,
+   -0.016897700,
+   -0.022914480,
+   -0.021642347,
+   -0.008863273,
+   0.017271957,
+   0.054921920,
+   0.098342579,
+   0.139044281,
+   0.168055832,
+   0.178571429);
+
+
 
 const int TAPS_3_phase = 24;
 const float luma_filter_3_phase[25] = float[25](
-	-0.000012020,
-	-0.000022146,
-	-0.000013155,
-	-0.000012020,
-	-0.000049979,
-	-0.000113940,
-	-0.000122150,
-	-0.000005612,
-	0.000170516,
-	0.000237199,
-	0.000169640,
-	0.000285688,
-	0.000984574,
-	0.002018683,
-	0.002002275,
-	-0.005909882,
-	-0.012049081,
-	-0.018222860,
-	-0.022606931,
-	0.002460860,
-	0.035868225,
-	0.084016453,
-	0.135563500,
-	0.175261268,
-	0.220176552);
+   -0.000012020,
+   -0.000022146,
+   -0.000013155,
+   -0.000012020,
+   -0.000049979,
+   -0.000113940,
+   -0.000122150,
+   -0.000005612,
+   0.000170516,
+   0.000237199,
+   0.000169640,
+   0.000285688,
+   0.000984574,
+   0.002018683,
+   0.002002275,
+   -0.005909882,
+   -0.012049081,
+   -0.018222860,
+   -0.022606931,
+   0.002460860,
+   0.035868225,
+   0.084016453,
+   0.135563500,
+   0.175261268,
+   0.220176552);
 
 const float chroma_filter_3_phase[25] = float[25](
-	-0.000118847,
-	-0.000271306,
-	-0.000502642,
-	-0.000930833,
-	-0.001451013,
-	-0.002064744,
-	-0.002700432,
-	-0.003241276,
-	-0.003524948,
-	-0.003350284,
-	-0.002491729,
-	-0.000721149,
-	0.002164659,
-	0.006313635,
-	0.011789103,
-	0.018545660,
-	0.026414396,
-	0.035100710,
-	0.044196567,
-	0.053207202,
-	0.061590275,
-	0.068803602,
-	0.074356193,
-	0.077856564,
-	0.079052396);
+   -0.000118847,
+   -0.000271306,
+   -0.000502642,
+   -0.000930833,
+   -0.001451013,
+   -0.002064744,
+   -0.002700432,
+   -0.003241276,
+   -0.003524948,
+   -0.003350284,
+   -0.002491729,
+   -0.000721149,
+   0.002164659,
+   0.006313635,
+   0.011789103,
+   0.018545660,
+   0.026414396,
+   0.035100710,
+   0.044196567,
+   0.053207202,
+   0.061590275,
+   0.068803602,
+   0.074356193,
+   0.077856564,
+   0.079052396);
+
 
 const float chroma_filter_4_phase[33] = float[33](
+    0.0,
 	0.0,
 	0.0,
 	0.0,
@@ -687,184 +740,183 @@ const float chroma_filter_4_phase[33] = float[33](
 	0.0,
 	0.0,
 	0.0,
-	0.0,
-	-0.000118847,
-	-0.000271306,
-	-0.000502642,
-	-0.000930833,
-	-0.001451013,
-	-0.002064744,
-	-0.002700432,
-	-0.003241276,
-	-0.003524948,
-	-0.003350284,
-	-0.002491729,
-	-0.000721149,
-	0.002164659,
-	0.006313635,
-	0.011789103,
-	0.018545660,
-	0.026414396,
-	0.035100710,
-	0.044196567,
-	0.053207202,
-	0.061590275,
-	0.068803602,
-	0.074356193,
-	0.077856564,
-	0.079052396);
-
-vec3 rgb2yiq(vec3 col) {
-	return col * mat3(
-		0.2989, 0.5870,  0.1140,
-		0.5959, -0.2744, -0.3216,
-		0.2115, -0.5229, 0.3114);
-}
-
-vec3 fetch_offset(vec2 pos, float offset, float one_x) {
-	float r = NTSC1_tex(pos + vec2(offset * one_x, 0.0)).x;
-	vec2 gb = NTSC1_tex(pos + vec2(offset * (one_x / NTSC_SCALE), 0.0)).yz;
-	return vec3(r, gb);
-}
+   -0.000118847,
+   -0.000271306,
+   -0.000502642,
+   -0.000930833,
+   -0.001451013,
+   -0.002064744,
+   -0.002700432,
+   -0.003241276,
+   -0.003524948,
+   -0.003350284,
+   -0.002491729,
+   -0.000721149,
+   0.002164659,
+   0.006313635,
+   0.011789103,
+   0.018545660,
+   0.026414396,
+   0.035100710,
+   0.044196567,
+   0.053207202,
+   0.061590275,
+   0.068803602,
+   0.074356193,
+   0.077856564,
+   0.079052396);
 
 vec4 hook() {
-	float chroma_filter_2_phase[33] = float[33](
-		0.001384762,
-		0.001678312,
-		0.002021715,
-		0.002420562,
-		0.002880460,
-		0.003406879,
-		0.004004985,
-		0.004679445,
-		0.005434218,
-		0.006272332,
-		0.007195654,
-		0.008204665,
-		0.009298238,
-		0.010473450,
-		0.011725413,
-		0.013047155,
-		0.014429548,
-		0.015861306,
-		0.017329037,
-		0.018817382,
-		0.020309220,
-		0.021785952,
-		0.023227857,
-		0.024614500,
-		0.025925203,
-		0.027139546,
-		0.028237893,
-		0.029201910,
-		0.030015081,
-		0.030663170,
-		0.031134640,
-		0.031420995,
-		0.031517031);
+	vec4 FragColor = vec4(0.0);
 
-	vec2 pos = NTSC1_pos - vec2(0.5 / NTSC1_size.x, 0.0);
-	float one_x = 1.0 / NTSC1_size.x / NTSC_SCALE;
-	vec3 signal = vec3(0.0);
-	float phase = (NTSC_PHASE <= 1)
-		? ((MAIN_size.x > 300.0) ? 2 : 3)
-		: ((NTSC_PHASE >= 3) ? 3 : 2);
+float chroma_filter_2_phase[33] = float[33](
+   0.001384762,
+   0.001678312,
+   0.002021715,
+   0.002420562,
+   0.002880460,
+   0.003406879,
+   0.004004985,
+   0.004679445,
+   0.005434218,
+   0.006272332,
+   0.007195654,
+   0.008204665,
+   0.009298238,
+   0.010473450,
+   0.011725413,
+   0.013047155,
+   0.014429548,
+   0.015861306,
+   0.017329037,
+   0.018817382,
+   0.020309220,
+   0.021785952,
+   0.023227857,
+   0.024614500,
+   0.025925203,
+   0.027139546,
+   0.028237893,
+   0.029201910,
+   0.030015081,
+   0.030663170,
+   0.031134640,
+   0.031420995,
+   0.031517031);
 
-	if (NTSC_PHASE == 4) {
-		phase = 2;
-		chroma_filter_2_phase = chroma_filter_4_phase;
-	}
+   float res = global.ntsc_scale;
+   float OriginalSize = global.OriginalSize.x;
+   float one_x = global.SourceSize.z / res;
+   vec3 signal = vec3(0.0);
+   float phase = (global.ntsc_phase < 1.5) ? ((OriginalSize > 300.0) ? 2.0 : 3.0) : ((global.ntsc_phase > 2.5) ? 3.0 : 2.0);
+   if (global.ntsc_phase == 4.0) { phase = 2.0; chroma_filter_2_phase = chroma_filter_4_phase; }
 
-	if (phase <= 2) {
-		vec3 sums = fetch_offset(pos, 0.0 - 32.0, one_x) + fetch_offset(pos, 32.0 - 0.0, one_x);
-		signal += sums * vec3(luma_filter_2_phase[0], chroma_filter_2_phase[0], chroma_filter_2_phase[0]);
-		sums = fetch_offset(pos, 1.0 - 32.0, one_x) + fetch_offset(pos, 32.0 - 1.0, one_x);
-		signal += sums * vec3(luma_filter_2_phase[1], chroma_filter_2_phase[1], chroma_filter_2_phase[1]);
-		sums = fetch_offset(pos, 2.0 - 32.0, one_x) + fetch_offset(pos, 32.0 - 2.0, one_x);
-		signal += sums * vec3(luma_filter_2_phase[2], chroma_filter_2_phase[2], chroma_filter_2_phase[2]);
-		sums = fetch_offset(pos, 3.0 - 32.0, one_x) + fetch_offset(pos, 32.0 - 3.0, one_x);
-		signal += sums * vec3(luma_filter_2_phase[3], chroma_filter_2_phase[3], chroma_filter_2_phase[3]);
-		sums = fetch_offset(pos, 4.0 - 32.0, one_x) + fetch_offset(pos, 32.0 - 4.0, one_x);
-		signal += sums * vec3(luma_filter_2_phase[4], chroma_filter_2_phase[4], chroma_filter_2_phase[4]);
-		sums = fetch_offset(pos, 5.0 - 32.0, one_x) + fetch_offset(pos, 32.0 - 5.0, one_x);
-		signal += sums * vec3(luma_filter_2_phase[5], chroma_filter_2_phase[5], chroma_filter_2_phase[5]);
-		sums = fetch_offset(pos, 6.0 - 32.0, one_x) + fetch_offset(pos, 32.0 - 6.0, one_x);
-		signal += sums * vec3(luma_filter_2_phase[6], chroma_filter_2_phase[6], chroma_filter_2_phase[6]);
-		sums = fetch_offset(pos, 7.0 - 32.0, one_x) + fetch_offset(pos, 32.0 - 7.0, one_x);
-		signal += sums * vec3(luma_filter_2_phase[7], chroma_filter_2_phase[7], chroma_filter_2_phase[7]);
-		sums = fetch_offset(pos, 8.0 - 32.0, one_x) + fetch_offset(pos, 32.0 - 8.0, one_x);
-		signal += sums * vec3(luma_filter_2_phase[8], chroma_filter_2_phase[8], chroma_filter_2_phase[8]);
-		sums = fetch_offset(pos, 9.0 - 32.0, one_x) + fetch_offset(pos, 32.0 - 9.0, one_x);
-		signal += sums * vec3(luma_filter_2_phase[9], chroma_filter_2_phase[9], chroma_filter_2_phase[9]);
-		sums = fetch_offset(pos, 10.0 - 32.0, one_x) + fetch_offset(pos, 32.0 - 10.0, one_x);
-		signal += sums * vec3(luma_filter_2_phase[10], chroma_filter_2_phase[10], chroma_filter_2_phase[10]);
-		sums = fetch_offset(pos, 11.0 - 32.0, one_x) + fetch_offset(pos, 32.0 - 11.0, one_x);
-		signal += sums * vec3(luma_filter_2_phase[11], chroma_filter_2_phase[11], chroma_filter_2_phase[11]);
-		sums = fetch_offset(pos, 12.0 - 32.0, one_x) + fetch_offset(pos, 32.0 - 12.0, one_x);
-		signal += sums * vec3(luma_filter_2_phase[12], chroma_filter_2_phase[12], chroma_filter_2_phase[12]);
-		sums = fetch_offset(pos, 13.0 - 32.0, one_x) + fetch_offset(pos, 32.0 - 13.0, one_x);
-		signal += sums * vec3(luma_filter_2_phase[13], chroma_filter_2_phase[13], chroma_filter_2_phase[13]);
-		sums = fetch_offset(pos, 14.0 - 32.0, one_x) + fetch_offset(pos, 32.0 - 14.0, one_x);
-		signal += sums * vec3(luma_filter_2_phase[14], chroma_filter_2_phase[14], chroma_filter_2_phase[14]);
-		sums = fetch_offset(pos, 15.0 - 32.0, one_x) + fetch_offset(pos, 32.0 - 15.0, one_x);
-		signal += sums * vec3(luma_filter_2_phase[15], chroma_filter_2_phase[15], chroma_filter_2_phase[15]);
-		sums = fetch_offset(pos, 16.0 - 32.0, one_x) + fetch_offset(pos, 32.0 - 16.0, one_x);
-		signal += sums * vec3(luma_filter_2_phase[16], chroma_filter_2_phase[16], chroma_filter_2_phase[16]);
-		sums = fetch_offset(pos, 17.0 - 32.0, one_x) + fetch_offset(pos, 32.0 - 17.0, one_x);
-		signal += sums * vec3(luma_filter_2_phase[17], chroma_filter_2_phase[17], chroma_filter_2_phase[17]);
-		sums = fetch_offset(pos, 18.0 - 32.0, one_x) + fetch_offset(pos, 32.0 - 18.0, one_x);
-		signal += sums * vec3(luma_filter_2_phase[18], chroma_filter_2_phase[18], chroma_filter_2_phase[18]);
-		sums = fetch_offset(pos, 19.0 - 32.0, one_x) + fetch_offset(pos, 32.0 - 19.0, one_x);
-		signal += sums * vec3(luma_filter_2_phase[19], chroma_filter_2_phase[19], chroma_filter_2_phase[19]);
-		sums = fetch_offset(pos, 20.0 - 32.0, one_x) + fetch_offset(pos, 32.0 - 20.0, one_x);
-		signal += sums * vec3(luma_filter_2_phase[20], chroma_filter_2_phase[20], chroma_filter_2_phase[20]);
-		sums = fetch_offset(pos, 21.0 - 32.0, one_x) + fetch_offset(pos, 32.0 - 21.0, one_x);
-		signal += sums * vec3(luma_filter_2_phase[21], chroma_filter_2_phase[21], chroma_filter_2_phase[21]);
-		sums = fetch_offset(pos, 22.0 - 32.0, one_x) + fetch_offset(pos, 32.0 - 22.0, one_x);
-		signal += sums * vec3(luma_filter_2_phase[22], chroma_filter_2_phase[22], chroma_filter_2_phase[22]);
-		sums = fetch_offset(pos, 23.0 - 32.0, one_x) + fetch_offset(pos, 32.0 - 23.0, one_x);
-		signal += sums * vec3(luma_filter_2_phase[23], chroma_filter_2_phase[23], chroma_filter_2_phase[23]);
-		sums = fetch_offset(pos, 24.0 - 32.0, one_x) + fetch_offset(pos, 32.0 - 24.0, one_x);
-		signal += sums * vec3(luma_filter_2_phase[24], chroma_filter_2_phase[24], chroma_filter_2_phase[24]);
-		sums = fetch_offset(pos, 25.0 - 32.0, one_x) + fetch_offset(pos, 32.0 - 25.0, one_x);
-		signal += sums * vec3(luma_filter_2_phase[25], chroma_filter_2_phase[25], chroma_filter_2_phase[25]);
-		sums = fetch_offset(pos, 26.0 - 32.0, one_x) + fetch_offset(pos, 32.0 - 26.0, one_x);
-		signal += sums * vec3(luma_filter_2_phase[26], chroma_filter_2_phase[26], chroma_filter_2_phase[26]);
-		sums = fetch_offset(pos, 27.0 - 32.0, one_x) + fetch_offset(pos, 32.0 - 27.0, one_x);
-		signal += sums * vec3(luma_filter_2_phase[27], chroma_filter_2_phase[27], chroma_filter_2_phase[27]);
-		sums = fetch_offset(pos, 28.0 - 32.0, one_x) + fetch_offset(pos, 32.0 - 28.0, one_x);
-		signal += sums * vec3(luma_filter_2_phase[28], chroma_filter_2_phase[28], chroma_filter_2_phase[28]);
-		sums = fetch_offset(pos, 29.0 - 32.0, one_x) + fetch_offset(pos, 32.0 - 29.0, one_x);
-		signal += sums * vec3(luma_filter_2_phase[29], chroma_filter_2_phase[29], chroma_filter_2_phase[29]);
-		sums = fetch_offset(pos, 30.0 - 32.0, one_x) + fetch_offset(pos, 32.0 - 30.0, one_x);
-		signal += sums * vec3(luma_filter_2_phase[30], chroma_filter_2_phase[30], chroma_filter_2_phase[30]);
-		sums = fetch_offset(pos, 31.0 - 32.0, one_x) + fetch_offset(pos, 32.0 - 31.0, one_x);
-		signal += sums * vec3(luma_filter_2_phase[31], chroma_filter_2_phase[31], chroma_filter_2_phase[31]);
 
-		signal += NTSC1_tex(pos).xyz * vec3(luma_filter_2_phase[TAPS_2_phase], chroma_filter_2_phase[TAPS_2_phase], chroma_filter_2_phase[TAPS_2_phase]);
-	} else {
-		for (int i = 0; i < TAPS_3_phase; i++) {
-			float offset = float(i);
-			vec3 sums = fetch_offset(pos, offset - float(TAPS_3_phase), one_x)
-				+ fetch_offset(pos, float(TAPS_3_phase) - offset, one_x);
-			signal += sums * vec3(luma_filter_3_phase[i], chroma_filter_3_phase[i], chroma_filter_3_phase[i]);
-		}
-		signal += NTSC1_tex(pos).xyz * vec3(luma_filter_3_phase[TAPS_3_phase], chroma_filter_3_phase[TAPS_3_phase], chroma_filter_3_phase[TAPS_3_phase]);
-	}
+   if(phase < 2.5)
+   {
+      vec3 sums = fetch_offset(0.0 - 32.0, one_x) + fetch_offset(32.0 - 0.0, one_x);
+      signal += sums * vec3(luma_filter_2_phase[0], chroma_filter_2_phase[0], chroma_filter_2_phase[0]);
+      sums = fetch_offset(1.0 - 32.0, one_x) + fetch_offset(32.0 - 1.0, one_x);
+      signal += sums * vec3(luma_filter_2_phase[1], chroma_filter_2_phase[1], chroma_filter_2_phase[1]);
+      sums = fetch_offset(2.0 - 32.0, one_x) + fetch_offset(32.0 - 2.0, one_x);
+      signal += sums * vec3(luma_filter_2_phase[2], chroma_filter_2_phase[2], chroma_filter_2_phase[2]);
+      sums = fetch_offset(3.0 - 32.0, one_x) + fetch_offset(32.0 - 3.0, one_x);
+      signal += sums * vec3(luma_filter_2_phase[3], chroma_filter_2_phase[3], chroma_filter_2_phase[3]);
+      sums = fetch_offset(4.0 - 32.0, one_x) + fetch_offset(32.0 - 4.0, one_x);
+      signal += sums * vec3(luma_filter_2_phase[4], chroma_filter_2_phase[4], chroma_filter_2_phase[4]);
+      sums = fetch_offset(5.0 - 32.0, one_x) + fetch_offset(32.0 - 5.0, one_x);
+      signal += sums * vec3(luma_filter_2_phase[5], chroma_filter_2_phase[5], chroma_filter_2_phase[5]);
+      sums = fetch_offset(6.0 - 32.0, one_x) + fetch_offset(32.0 - 6.0, one_x);
+      signal += sums * vec3(luma_filter_2_phase[6], chroma_filter_2_phase[6], chroma_filter_2_phase[6]);
+      sums = fetch_offset(7.0 - 32.0, one_x) + fetch_offset(32.0 - 7.0, one_x);
+      signal += sums * vec3(luma_filter_2_phase[7], chroma_filter_2_phase[7], chroma_filter_2_phase[7]);
+      sums = fetch_offset(8.0 - 32.0, one_x) + fetch_offset(32.0 - 8.0, one_x);
+      signal += sums * vec3(luma_filter_2_phase[8], chroma_filter_2_phase[8], chroma_filter_2_phase[8]);
+      sums = fetch_offset(9.0 - 32.0, one_x) + fetch_offset(32.0 - 9.0, one_x);
+      signal += sums * vec3(luma_filter_2_phase[9], chroma_filter_2_phase[9], chroma_filter_2_phase[9]);
+      sums = fetch_offset(10.0 - 32.0, one_x) + fetch_offset(32.0 - 10.0, one_x);
+      signal += sums * vec3(luma_filter_2_phase[10], chroma_filter_2_phase[10], chroma_filter_2_phase[10]);
+      sums = fetch_offset(11.0 - 32.0, one_x) + fetch_offset(32.0 - 11.0, one_x);
+      signal += sums * vec3(luma_filter_2_phase[11], chroma_filter_2_phase[11], chroma_filter_2_phase[11]);
+      sums = fetch_offset(12.0 - 32.0, one_x) + fetch_offset(32.0 - 12.0, one_x);
+      signal += sums * vec3(luma_filter_2_phase[12], chroma_filter_2_phase[12], chroma_filter_2_phase[12]);
+      sums = fetch_offset(13.0 - 32.0, one_x) + fetch_offset(32.0 - 13.0, one_x);
+      signal += sums * vec3(luma_filter_2_phase[13], chroma_filter_2_phase[13], chroma_filter_2_phase[13]);
+      sums = fetch_offset(14.0 - 32.0, one_x) + fetch_offset(32.0 - 14.0, one_x);
+      signal += sums * vec3(luma_filter_2_phase[14], chroma_filter_2_phase[14], chroma_filter_2_phase[14]);
+      sums = fetch_offset(15.0 - 32.0, one_x) + fetch_offset(32.0 - 15.0, one_x);
+      signal += sums * vec3(luma_filter_2_phase[15], chroma_filter_2_phase[15], chroma_filter_2_phase[15]);
+      sums = fetch_offset(16.0 - 32.0, one_x) + fetch_offset(32.0 - 16.0, one_x);
+      signal += sums * vec3(luma_filter_2_phase[16], chroma_filter_2_phase[16], chroma_filter_2_phase[16]);
+      sums = fetch_offset(17.0 - 32.0, one_x) + fetch_offset(32.0 - 17.0, one_x);
+      signal += sums * vec3(luma_filter_2_phase[17], chroma_filter_2_phase[17], chroma_filter_2_phase[17]);
+      sums = fetch_offset(18.0 - 32.0, one_x) + fetch_offset(32.0 - 18.0, one_x);
+      signal += sums * vec3(luma_filter_2_phase[18], chroma_filter_2_phase[18], chroma_filter_2_phase[18]);
+      sums = fetch_offset(19.0 - 32.0, one_x) + fetch_offset(32.0 - 19.0, one_x);
+      signal += sums * vec3(luma_filter_2_phase[19], chroma_filter_2_phase[19], chroma_filter_2_phase[19]);
+      sums = fetch_offset(20.0 - 32.0, one_x) + fetch_offset(32.0 - 20.0, one_x);
+      signal += sums * vec3(luma_filter_2_phase[20], chroma_filter_2_phase[20], chroma_filter_2_phase[20]);
+      sums = fetch_offset(21.0 - 32.0, one_x) + fetch_offset(32.0 - 21.0, one_x);
+      signal += sums * vec3(luma_filter_2_phase[21], chroma_filter_2_phase[21], chroma_filter_2_phase[21]);
+      sums = fetch_offset(22.0 - 32.0, one_x) + fetch_offset(32.0 - 22.0, one_x);
+      signal += sums * vec3(luma_filter_2_phase[22], chroma_filter_2_phase[22], chroma_filter_2_phase[22]);
+      sums = fetch_offset(23.0 - 32.0, one_x) + fetch_offset(32.0 - 23.0, one_x);
+      signal += sums * vec3(luma_filter_2_phase[23], chroma_filter_2_phase[23], chroma_filter_2_phase[23]);
+      sums = fetch_offset(24.0 - 32.0, one_x) + fetch_offset(32.0 - 24.0, one_x);
+      signal += sums * vec3(luma_filter_2_phase[24], chroma_filter_2_phase[24], chroma_filter_2_phase[24]);
+      sums = fetch_offset(25.0 - 32.0, one_x) + fetch_offset(32.0 - 25.0, one_x);
+      signal += sums * vec3(luma_filter_2_phase[25], chroma_filter_2_phase[25], chroma_filter_2_phase[25]);
+      sums = fetch_offset(26.0 - 32.0, one_x) + fetch_offset(32.0 - 26.0, one_x);
+      signal += sums * vec3(luma_filter_2_phase[26], chroma_filter_2_phase[26], chroma_filter_2_phase[26]);
+      sums = fetch_offset(27.0 - 32.0, one_x) + fetch_offset(32.0 - 27.0, one_x);
+      signal += sums * vec3(luma_filter_2_phase[27], chroma_filter_2_phase[27], chroma_filter_2_phase[27]);
+      sums = fetch_offset(28.0 - 32.0, one_x) + fetch_offset(32.0 - 28.0, one_x);
+      signal += sums * vec3(luma_filter_2_phase[28], chroma_filter_2_phase[28], chroma_filter_2_phase[28]);
+      sums = fetch_offset(29.0 - 32.0, one_x) + fetch_offset(32.0 - 29.0, one_x);
+      signal += sums * vec3(luma_filter_2_phase[29], chroma_filter_2_phase[29], chroma_filter_2_phase[29]);
+      sums = fetch_offset(30.0 - 32.0, one_x) + fetch_offset(32.0 - 30.0, one_x);
+      signal += sums * vec3(luma_filter_2_phase[30], chroma_filter_2_phase[30], chroma_filter_2_phase[30]);
+      sums = fetch_offset(31.0 - 32.0, one_x) + fetch_offset(32.0 - 31.0, one_x);
+      signal += sums * vec3(luma_filter_2_phase[31], chroma_filter_2_phase[31], chroma_filter_2_phase[31]);
 
-	if (NTSC_RING > 0.05) {
-		vec2 dx = vec2(1.0 / MAIN_size.x / min(NTSC_SCALE, 1.0), 0.0);
-		float a = NTSC1_tex(pos - 1.5*dx).a;
-		float b = NTSC1_tex(pos - 0.5*dx).a;
-		float c = NTSC1_tex(pos + 1.5*dx).a;
-		float d = NTSC1_tex(pos + 0.5*dx).a;
-		float e = NTSC1_tex(pos         ).a;
-		signal.x = mix(signal.x, clamp(signal.x, min(min(min(a,b),min(c,d)),e), max(max(max(a,b),max(c,d)),e)), NTSC_RING);
-	}
+      signal += texture(Source, vTexCoord).xyz *
+         vec3(luma_filter_2_phase[TAPS_2_phase], chroma_filter_2_phase[TAPS_2_phase], chroma_filter_2_phase[TAPS_2_phase]);
+   }
+   else if(phase > 2.5)
+   {
+      for (int i = 0; i < TAPS_3_phase; i++)
+      {
+         float offset = float(i);
 
-	signal.x = clamp(signal.x, -1.0, 1.0);
-	vec3 orig = rgb2yiq(AFTERGLOW_tex(AFTERGLOW_pos).rgb);
-	return vec4(signal, orig.x);
+         vec3 sums = fetch_offset(offset - float(TAPS_3_phase), one_x) +
+            fetch_offset(float(TAPS_3_phase) - offset, one_x);
+         signal += sums * vec3(luma_filter_3_phase[i], chroma_filter_3_phase[i], chroma_filter_3_phase[i]);
+      }
+      signal += texture(Source, vTexCoord).xyz *
+         vec3(luma_filter_3_phase[TAPS_3_phase], chroma_filter_3_phase[TAPS_3_phase], chroma_filter_3_phase[TAPS_3_phase]);
+   }
+
+
+   if (global.ntsc_ring > 0.05)
+   {
+      vec2 dx = vec2(global.OriginalSize.z / min(res, 1.0), 0.0);
+	  float a = texture(Source, vTexCoord - 1.5*dx).a;
+	  float b = texture(Source, vTexCoord - 0.5*dx).a;
+	  float c = texture(Source, vTexCoord + 1.5*dx).a;
+	  float d = texture(Source, vTexCoord + 0.5*dx).a;
+      float e = texture(Source, vTexCoord         ).a;
+      signal.x = mix(signal.x, clamp(signal.x, min(min(min(a,b),min(c,d)),e), max(max(max(a,b),max(c,d)),e)), global.ntsc_ring);
+   }
+
+
+   vec3 orig = rgb2yiq(texture(PrePass0, vTexCoord).rgb);
+
+   signal.x = clamp(signal.x, -1.0, 1.0);
+   vec3 rgb = signal;
+
+   FragColor = vec4(rgb, orig.x);
+
+	return FragColor;
 }
 
 //!HOOK MAIN
