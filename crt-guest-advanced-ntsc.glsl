@@ -24,6 +24,7 @@
 
 
 // TODO check filter_linear values and how to enforce them in MPV
+// TODO check mipmap_input values and how to enforce them in MPV
 
 
 //!HOOK MAIN
@@ -1085,6 +1086,10 @@ vec4 hook() {
 
 	return FragColor;
 }
+
+
+// TODO missing pass "PrePass" / "stock.slang" with mipmap_input param??
+
 
 //!HOOK MAIN
 //!SAVE AVGLUM
