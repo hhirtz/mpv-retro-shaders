@@ -99,7 +99,7 @@ vec4 hook() {
 //!BIND SamplerLUT3
 //!BIND SamplerLUT4
 //!COMPONENTS 4
-//!DESC CRT Guest Advanced NTSC -- Pre-shaders afterglow pass
+//!DESC CRT Guest Advanced NTSC -- PrePass0
 
 // Parameters
 #define AFTERGLOW_STRENGTH    0.2    // between 0.0 and 0.6
@@ -119,6 +119,38 @@ vec4 hook() {
 #define VIGNETTE_STRENGTH     0.0    // between 0.0 and 2.0
 #define VIGNETTE_SIZE         1.0    // between 0.5 and 3.0
 
+// libretro <-> mpv compatibility layer
+#define COMPAT_TEXTURE(c,d) texture(c,d)
+#define vTexCoord MAIN_pos
+#define StockPass MAIN_raw
+#define AfterglowPass AFTERGLOW0_raw
+struct params_ {
+	vec4 OriginalSize;
+	float vigstr;
+	float vigdef;
+	float sega_fix;
+	float pre_bb;
+	float contr;
+} params = params_(
+	vec4(MAIN_size, MAIN_pt),
+	VIGNETTE_STRENGTH,
+	VIGNETTE_SIZE,
+	float(SEGA_FIX),
+	BRIGHTNESS_ADJUSTMENT,
+	CONTRAST_ADJUSTMENT
+);
+#define AS AFTERGLOW_STRENGTH
+#define sat AFTERGLOW_SATURATION
+#define CS float(CRT_STYLE)
+#define CP float(CRT_PROFILE)
+#define LS float(LUT_SIZE)
+#define LS float(LUT_SIZE)
+#define LUTLOW LUT_LOW
+#define LUTBR LUT_BRIGHTNESS
+#define WP COLOR_TEMPERATURE
+#define wp_saturation SATURATION_ADJUSTMENT
+#define BP BLACK_LEVEL
+
 #ifndef linearize
 // Implementation from mpv's gpu-next
 vec4 linearize(vec4 color) {
@@ -130,168 +162,216 @@ vec4 linearize(vec4 color) {
 }
 #endif
 
-vec3 fix_lut(vec3 lutcolor, vec3 ref) {
+// Color profile matrices
+
+const mat3 Profile0 =
+mat3(
+ 0.412391,  0.212639,  0.019331,
+ 0.357584,  0.715169,  0.119195,
+ 0.180481,  0.072192,  0.950532
+);
+
+const mat3 Profile1 =
+mat3(
+ 0.430554,  0.222004,  0.020182,
+ 0.341550,  0.706655,  0.129553,
+ 0.178352,  0.071341,  0.939322
+);
+
+const mat3 Profile2 =
+mat3(
+ 0.396686,  0.210299,  0.006131,
+ 0.372504,  0.713766,  0.115356,
+ 0.181266,  0.075936,  0.967571
+);
+
+const mat3 Profile3 =
+mat3(
+ 0.393521,  0.212376,  0.018739,
+ 0.365258,  0.701060,  0.111934,
+ 0.191677,  0.086564,  0.958385
+);
+
+const mat3 Profile4 =
+mat3(
+ 0.392258,  0.209410,  0.016061,
+ 0.351135,  0.725680,  0.093636,
+ 0.166603,  0.064910,  0.850324
+);
+
+const mat3 Profile5 =
+mat3(
+ 0.377923,  0.195679,  0.010514,
+ 0.317366,  0.722319,  0.097826,
+ 0.207738,  0.082002,  1.076960
+);
+
+const mat3 ToSRGB =
+mat3(
+ 3.240970, -0.969244,  0.055630,
+-1.537383,  1.875968, -0.203977,
+-0.498611,  0.041555,  1.056972
+);
+
+const mat3 ToModern =
+mat3(
+ 2.791723,	-0.894766,	0.041678,
+-1.173165,	 1.815586, -0.130886,
+-0.440973,	 0.032000,	1.002034
+);
+
+const mat3 ToDCI =
+mat3(
+ 2.493497,	-0.829489,	0.035846,
+-0.931384,	 1.762664, -0.076172,
+-0.402711,	 0.023625,	0.956885
+);
+
+const mat3 ToAdobe =
+mat3(
+ 2.041588, -0.969244,  0.013444,
+-0.565007,  1.875968, -0.11836,
+-0.344731,  0.041555,  1.015175
+);
+
+const mat3 ToREC =
+mat3(
+ 1.716651, -0.666684,  0.017640,
+-0.355671,  1.616481, -0.042771,
+-0.253366,  0.015769,  0.942103
+);
+
+// Color temperature matrices
+
+const mat3 D65_to_D55 = mat3 (
+           0.4850339153,  0.2500956126,  0.0227359648,
+           0.3488957224,  0.6977914447,  0.1162985741,
+           0.1302823568,  0.0521129427,  0.6861537456);
+
+
+const mat3 D65_to_D93 = mat3 (
+           0.3412754080,  0.1759701322,  0.0159972847,
+           0.3646170520,  0.7292341040,  0.1215390173,
+           0.2369894093,  0.0947957637,  1.2481442225);
+
+
+vec3 fix_lut(vec3 lutcolor, vec3 ref)
+{
 	float r = length(ref);
 	float l = length(lutcolor);
 	float m = max(max(ref.r,ref.g),ref.b);
 	ref = normalize(lutcolor + 0.0000001) * mix(r, l, pow(m,1.25));
-	return mix(lutcolor, ref, LUT_BRIGHTNESS);
+	return mix(lutcolor, ref, LUTBR);
 }
 
+
 float vignette(vec2 pos) {
-	vec2 b = vec2(VIGNETTE_SIZE) * vec2(1.0, MAIN_size.x/MAIN_size.y) * 0.125;
+	vec2 b = vec2(params.vigdef, params.vigdef) *  vec2(1.0, params.OriginalSize.x/params.OriginalSize.y) * 0.125;
 	pos = clamp(pos, 0.0, 1.0);
 	pos = abs(2.0*(pos - 0.5));
 	vec2 res = mix(0.0.xx, 1.0.xx, smoothstep(1.0.xx, 1.0.xx-b, sqrt(pos)));
 	res = pow(res, 0.70.xx);
-	return max(mix(1.0, sqrt(res.x*res.y), VIGNETTE_STRENGTH), 0.0);
+	return max(mix(1.0, sqrt(res.x*res.y), params.vigstr), 0.0);
 }
 
-vec3 plant(vec3 tar, float r) {
+
+vec3 plant (vec3 tar, float r)
+{
 	float t = max(max(tar.r,tar.g),tar.b) + 0.00001;
 	return tar * r / t;
 }
 
-float contrast(float x) {
-	return max(mix(x, smoothstep(0.0, 1.0, x), CONTRAST_ADJUSTMENT), 0.0);
+float contrast(float x)
+{
+	return max(mix(x, smoothstep(0.0, 1.0, x), params.contr),0.0);
 }
 
 vec4 hook() {
-	vec4 imgColor = linearize(MAIN_tex(MAIN_pos));
-	vec4 aftglow = AFTERGLOW0_tex(AFTERGLOW0_pos);
-	float w = 1.0 - aftglow.w;
-	float l = length(aftglow.rgb);
-	aftglow.rgb = AFTERGLOW_STRENGTH * w * normalize(pow(aftglow.rgb + 0.01, vec3(AFTERGLOW_SATURATION))) * l;
-	float bp = w * BLACK_LEVEL / 255.0;
+	vec4 FragColor = vec4(0.0);
 
-	if (SEGA_FIX) {
-		imgColor.rgb = imgColor.rgb * (255.0 / 239.0);
-	}
+   vec4 imgColor = linearize(COMPAT_TEXTURE(StockPass, vTexCoord.xy));
+   vec4 aftglow = COMPAT_TEXTURE(AfterglowPass, vTexCoord.xy);
 
-	imgColor.rgb = min(imgColor.rgb, 1.0);
+   float w = 1.0-aftglow.w;
 
-	vec3 color = imgColor.rgb;
+   float l = length(aftglow.rgb);
+   aftglow.rgb = AS*w*normalize(pow(aftglow.rgb + 0.01, vec3(sat)))*l;
+   float bp = w * BP/255.0;
 
-	if (TNTC == 0) {
-		color.rgb = imgColor.rgb;
-	}
-	else {
-		float lutlow = LUT_LOW/255.0;
-		float invLS = 1.0/LUT_SIZE;
-		vec3 lut_ref = imgColor.rgb + lutlow*(1.0 - pow(imgColor.rgb, 0.333.xxx));
-		float lutb = lut_ref.b * (1.0-0.5*invLS);
-		lut_ref.rg    = lut_ref.rg * (1.0-invLS) + 0.5*invLS;
-		float tile1 = ceil (lutb * (LUT_SIZE-1.0));
-		float tile0 = max(tile1 - 1.0, 0.0);
-		float f = fract(lutb * (LUT_SIZE-1.0)); if (f == 0.0) f = 1.0;
-		vec2 coord0 = vec2(tile0 + lut_ref.r, lut_ref.g)*vec2(invLS, 1.0);
-		vec2 coord1 = vec2(tile1 + lut_ref.r, lut_ref.g)*vec2(invLS, 1.0);
-		vec4 color1, color2, res;
+   if (params.sega_fix > 0.5) imgColor.rgb = imgColor.rgb * (255.0 / 239.0);
 
-		if (int(TNTC) == 1)
-		{
-			color1 = texture(SamplerLUT1, coord0);
-			color2 = texture(SamplerLUT1, coord1);
-			res = mix(color1, color2, f);
-		}
-		else if (int(TNTC) == 2)
-		{
-			color1 = texture(SamplerLUT2, coord0);
-			color2 = texture(SamplerLUT2, coord1);
-			res = mix(color1, color2, f);
-		}
-		else if (int(TNTC) == 3)
-		{
-			color1 = texture(SamplerLUT3, coord0);
-			color2 = texture(SamplerLUT3, coord1);
-			res = mix(color1, color2, f);
-		}
-		else if (int(TNTC) == 4)
-		{
-			color1 = texture(SamplerLUT4, coord0);
-			color2 = texture(SamplerLUT4, coord1);
-			res = mix(color1, color2, f);
-		}
+   imgColor.rgb = min(imgColor.rgb, 1.0);
 
-		res.rgb = fix_lut(res.rgb, imgColor.rgb);
+   vec3 color = imgColor.rgb;
 
-		color = mix(imgColor.rgb, res.rgb, min(TNTC,1.0));
-	}
+   if (int(TNTC) == 0)
+   {
+      color.rgb = imgColor.rgb;
+   }
+   else
+   {
+	  float lutlow = LUTLOW/255.0; float invLS = 1.0/LS;
+	  vec3 lut_ref = imgColor.rgb + lutlow*(1.0 - pow(imgColor.rgb, 0.333.xxx));
+	  float lutb = lut_ref.b * (1.0-0.5*invLS);
+	  lut_ref.rg    = lut_ref.rg * (1.0-invLS) + 0.5*invLS;
+	  float tile1 = ceil (lutb * (LS-1.0));
+	  float tile0 = max(tile1 - 1.0, 0.0);
+	  float f = fract(lutb * (LS-1.0)); if (f == 0.0) f = 1.0;
+	  vec2 coord0 = vec2(tile0 + lut_ref.r, lut_ref.g)*vec2(invLS, 1.0);
+	  vec2 coord1 = vec2(tile1 + lut_ref.r, lut_ref.g)*vec2(invLS, 1.0);
+	  vec4 color1, color2, res;
+
+      if (int(TNTC) == 1)
+      {
+         color1 = COMPAT_TEXTURE(SamplerLUT1, coord0);
+         color2 = COMPAT_TEXTURE(SamplerLUT1, coord1);
+         res = mix(color1, color2, f);
+      }
+      else if (int(TNTC) == 2)
+      {
+         color1 = COMPAT_TEXTURE(SamplerLUT2, coord0);
+         color2 = COMPAT_TEXTURE(SamplerLUT2, coord1);
+         res = mix(color1, color2, f);
+      }
+      else if (int(TNTC) == 3)
+      {
+         color1 = COMPAT_TEXTURE(SamplerLUT3, coord0);
+         color2 = COMPAT_TEXTURE(SamplerLUT3, coord1);
+         res = mix(color1, color2, f);
+      }
+      else if (int(TNTC) == 4)
+      {
+         color1 = COMPAT_TEXTURE(SamplerLUT4, coord0);
+         color2 = COMPAT_TEXTURE(SamplerLUT4, coord1);
+         res = mix(color1, color2, f);
+      }
+
+      res.rgb = fix_lut (res.rgb, imgColor.rgb);
+
+      color = mix(imgColor.rgb, res.rgb, min(TNTC,1.0));
+   }
 
 	vec3 c = clamp(color, 0.0, 1.0);
 
-	const mat3 ToSRGB = mat3(
-		 3.240970, -0.969244,  0.055630,
-		-1.537383,  1.875968, -0.203977,
-		-0.498611,  0.041555,  1.056972);
-
 	float p;
 	mat3 m_out;
-	switch (CRT_STYLE) {
-	case 1:
-		p = 2.2;
-		m_out = mat3(
-			 2.791723, -0.894766,  0.041678,
-			-1.173165,  1.815586, -0.130886,
-			-0.440973,  0.032000,  1.002034);
-	case 2:
-		p = 2.6;
-		m_out = mat3(
-			 2.493497, -0.829489,  0.035846,
-			-0.931384,  1.762664, -0.076172,
-			-0.402711,  0.023625,  0.956885);
-	case 3:
-		p = 2.2;
-		m_out = mat3(
-			 2.041588, -0.969244,  0.013444,
-			-0.565007,  1.875968, -0.11836,
-			-0.344731,  0.041555,  1.015175);
-	case 4:
-		p = 2.4;
-		m_out = mat3(
-			 1.716651, -0.666684,  0.017640,
-			-0.355671,  1.616481, -0.042771,
-			-0.253366,  0.015769,  0.942103);
-	default:
-		p = 2.2;
-		m_out = ToSRGB;
-	}
+
+	if (CS == 0.0) { p = 2.2; m_out =  ToSRGB;   } else
+	if (CS == 1.0) { p = 2.2; m_out =  ToModern; } else
+	if (CS == 2.0) { p = 2.6; m_out =  ToDCI;    } else
+	if (CS == 3.0) { p = 2.2; m_out =  ToAdobe;  } else
+	if (CS == 4.0) { p = 2.4; m_out =  ToREC;    }
 
 	color = pow(c, vec3(p));
 
-	mat3 m_in;
-	switch (CRT_PROFILE) {
-	case 1:
-		m_in = mat3(
-			0.430554,  0.222004,  0.020182,
-			0.341550,  0.706655,  0.129553,
-			0.178352,  0.071341,  0.939322);
-	case 2:
-		m_in = mat3(
-			0.396686,  0.210299,  0.006131,
-			0.372504,  0.713766,  0.115356,
-			0.181266,  0.075936,  0.967571);
-	case 3:
-		m_in = mat3(
-			0.393521,  0.212376,  0.018739,
-			0.365258,  0.701060,  0.111934,
-			0.191677,  0.086564,  0.958385);
-	case 4:
-		m_in = mat3(
-			0.392258,  0.209410,  0.016061,
-			0.351135,  0.725680,  0.093636,
-			0.166603,  0.064910,  0.850324);
-	case 5:
-		m_in = mat3(
-			0.377923,  0.195679,  0.010514,
-			0.317366,  0.722319,  0.097826,
-			0.207738,  0.082002,  1.076960);
-	default:
-		m_in = mat3(
-			0.412391,  0.212639,  0.019331,
-			0.357584,  0.715169,  0.119195,
-			0.180481,  0.072192,  0.950532);
-	}
+	mat3 m_in = Profile0;
+
+	if (CP == 0.0) { m_in = Profile0; } else
+	if (CP == 1.0) { m_in = Profile1; } else
+	if (CP == 2.0) { m_in = Profile2; } else
+	if (CP == 3.0) { m_in = Profile3; } else
+	if (CP == 4.0) { m_in = Profile4; } else
+	if (CP == 5.0) { m_in = Profile5; }
 
 	color = m_in*color;
 	color = m_out*color;
@@ -300,12 +380,12 @@ vec4 hook() {
 
 	color = pow(color, vec3(1.0/p));
 
-	if (CRT_PROFILE == -1) color = c;
+	if (CP == -1.0) color = c;
 
-	vec3 scolor1 = plant(pow(color, vec3(SATURATION_ADJUSTMENT)), max(max(color.r,color.g),color.b));
+	vec3 scolor1 = plant(pow(color, vec3(wp_saturation)), max(max(color.r,color.g),color.b));
 	float luma = dot(color, vec3(0.299, 0.587, 0.114));
-	vec3 scolor2 = mix(vec3(luma), color, SATURATION_ADJUSTMENT);
-	color = (SATURATION_ADJUSTMENT > 1.0) ? scolor1 : scolor2;
+	vec3 scolor2 = mix(vec3(luma), color, wp_saturation);
+	color = (wp_saturation > 1.0) ? scolor1 : scolor2;
 
 	color = plant(color, contrast(max(max(color.r,color.g),color.b)));
 
@@ -313,38 +393,29 @@ vec4 hook() {
 	color = clamp(color, 0.0, 1.0);
 	color = pow(color, vec3(p));
 
-	const mat3 D65_to_D55 = mat3 (
-		   0.4850339153,  0.2500956126,  0.0227359648,
-		   0.3488957224,  0.6977914447,  0.1162985741,
-		   0.1302823568,  0.0521129427,  0.6861537456);
-
-	const mat3 D65_to_D93 = mat3 (
-		   0.3412754080,  0.1759701322,  0.0159972847,
-		   0.3646170520,  0.7292341040,  0.1215390173,
-		   0.2369894093,  0.0947957637,  1.2481442225);
-
 	vec3 warmer = D65_to_D55*color;
 	warmer = ToSRGB*warmer;
 
 	vec3 cooler = D65_to_D93*color;
 	cooler = ToSRGB*cooler;
 
-	float m = abs(COLOR_TEMPERATURE)/100.0;
+	float m = abs(WP)/100.0;
 
-	vec3 comp = (COLOR_TEMPERATURE < 0.0) ? cooler : warmer;
+	vec3 comp = (WP < 0.0) ? cooler : warmer;
 
 	color = mix(color, comp, m);
 	color = pow(max(color, 0.0), vec3(1.0/p));
 
-	if (BLACK_LEVEL > -0.5) {
-		color = color + aftglow.rgb + bp;
-	} else {
-		color = max(color + BLACK_LEVEL/255.0, 0.0) / (1.0 + BLACK_LEVEL/255.0*step(-BLACK_LEVEL/255.0, max(max(color.r,color.g),color.b))) + aftglow.rgb;
+	if (BP > -0.5) color = color + aftglow.rgb + bp; else
+	{
+		color = max(color + BP/255.0, 0.0) / (1.0 + BP/255.0*step(- BP/255.0, max(max(color.r,color.g),color.b))) + aftglow.rgb;
 	}
 
-	color = min(color * BRIGHTNESS_ADJUSTMENT, 1.0);
+	color = min(color * params.pre_bb, 1.0);
 
-	return vec4(color, vignette(AFTERGLOW0_pos));
+	FragColor = vec4(color, vignette(vTexCoord.xy));
+
+	return FragColor;
 }
 
 //!HOOK MAIN
