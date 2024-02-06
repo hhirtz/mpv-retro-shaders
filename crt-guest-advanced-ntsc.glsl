@@ -1497,29 +1497,47 @@ vec4 hook() {
 	return FragColor;
 }
 
+
 //!HOOK MAIN
 //!SAVE VBLUR
 //!BIND MAIN
 //!BIND HBLUR
 //!WIDTH 800.0
 //!HEIGHT 600.0
-//!COMPONENTS 4
-//!DESC CRT Guest Advanced NTSC -- Vertical gaussian blur
+//!DESC CRT Guest Advanced NTSC -- GlowPass
 
 // Parameters
-#define SIZEV   6.0  // between 1.0 and 50.0
-#define SIGMA_V 1.2  // between 0.2 and 15.0
+#define VERTICAL_GLOW_RADIUS 6.0  // between 1.0 and 50.0
+#define VERTICAL_GLOW_SIGMA  1.2  // between 0.2 and 15.0
 
-float gaussian(float x) {
-	const float invsqrsigma = 1.0/(2.0*SIGMA_V*SIGMA_V);
+// libretro <-> mpv compatibility layer
+#define COMPAT_TEXTURE(c,d) texture(c,d)
+#define Source HBLUR_raw
+struct params_ {
+	vec4 SourceSize;
+	vec4 OriginalSize;
+} params = params_(
+	vec4(HBLUR_size, HBLUR_pt),
+	vec4(MAIN_size, MAIN_pt)
+);
+#define SIZEV VERTICAL_GLOW_RADIUS
+#define SIGMA_V VERTICAL_GLOW_SIGMA
+vec2 vTexCoord = HBLUR_pos;
+
+float invsqrsigma = 1.0/(2.0*SIGMA_V*SIGMA_V);
+
+float gaussian(float x)
+{
 	return exp(-x*x*invsqrsigma);
 }
 
 vec4 hook() {
-	vec4 SourceSize1 = vec4(HBLUR_size.x, MAIN_size.y, 1.0 / HBLUR_size.x, 1.0 / MAIN_size.y);
-	float f = fract(SourceSize1.x * HBLUR_pos.x);
+	vec4 FragColor = vec4(0.0);
+
+	vec4 SourceSize1 = vec4(params.SourceSize.x, params.OriginalSize.y, params.SourceSize.z, params.OriginalSize.w);
+	float f = fract(SourceSize1.y * vTexCoord.y);
 	f = 0.5 - f;
-	vec2 tex = floor(SourceSize1.xy * HBLUR_pos)*SourceSize1.zw + 0.5*SourceSize1.zw;
+	vec2 tex = floor(SourceSize1.xy * vTexCoord)*SourceSize1.zw + 0.5*SourceSize1.zw;
 	vec3 color = vec3(0.0);
 	vec2 dy  = vec2(0.0, SourceSize1.w);
 
@@ -1530,7 +1548,7 @@ vec4 hook() {
 
 	do
 	{
-		pixel  = HBLUR_tex(tex + n*dy).rgb;
+		pixel  = COMPAT_TEXTURE(Source, tex + n*dy).rgb;
 		w      = gaussian(n+f);
 		color  = color + w * pixel;
 		wsum   = wsum + w;
@@ -1540,7 +1558,9 @@ vec4 hook() {
 
 	color = color / wsum;
 
-	return vec4(color, 1.0);
+	FragColor = vec4(color, 1.0);
+
+	return FragColor;
 }
 
 //!HOOK MAIN
