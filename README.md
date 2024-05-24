@@ -51,6 +51,7 @@ See the following for more details on video filters:
 
 - CRT guest advanced shader (`--profile=crt-guest-advanced-ntsc`) emulates CRT
   looks. See [crtgan] for info on parameters.
+  **does not work with --vo=gpu-next**
 
 - Lottes' CRT shader (`--profile=crt-lottes`) emulates several CRT looks.
   Change the `SHADOW_MASK` parameter (0-4) to switch CRT types.
