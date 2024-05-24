@@ -25,6 +25,28 @@ Useful for watching Tool Assisted Speedruns at native resolution from
    mpv --profile=crt-lottes my_video.mp4
    ```
 
+### Usage with upscaled videos
+
+To use these shaders with upscaled videos, you need to downscale the video with
+a filter like so:
+
+```
+mpv --vf=format=convert=yes:fmt=yuv444p,lavfi=[scale=$WIDTH:$HEIGHT:flags=neighbor,setsar=1:1] \
+    --profile=crt-guest-advanced-ntsc \
+    My_upscaled_video.mp4
+```
+
+Change `$WIDTH:$HEIGHT` to the actual resolution of the game (e.g. `342:224`, or
+`256:224`).
+
+See the following for more details on video filters:
+
+- `mpv --vf=format=help`
+- `mpv --vf=format=fmt=help`
+- `mpv --vf=lavfi=help`
+- <https://mpv.io/manual/stable/#video-filters>
+- <https://ffmpeg.org/ffmpeg-filters.html#scale-1>
+
 ## Available shaders
 
 - CRT guest advanced shader (`--profile=crt-guest-advanced-ntsc`) emulates CRT
