@@ -57,6 +57,9 @@ See the following for more details on video filters:
   Change the `SHADOW_MASK` parameter (0-4) to switch CRT types.
   Change the `CURVATURE` parameter to set the curvature of the screen.
 
+- CRT royale (`--profile=crt-royale-fb-intel`), fake bloom, intel preset.
+  **requires --vo=gpu-next**
+
 - Gameboy Advance color shader (`--profile=gba`) make the colors look as if on a
   GBA screen.
 
