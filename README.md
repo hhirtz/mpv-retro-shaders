@@ -4,6 +4,8 @@ Port of some [libretro] shaders for use with [mpv].
 Useful for watching Tool Assisted Speedruns at native resolution from
 <https://tasvideos.org/>.
 
+Some of the shaders have been automatically generated using [mpv-libretro].
+
 ## Usage
 
 1. Clone this repository inside mpv's config folder:
@@ -71,3 +73,4 @@ See their source for details.
 [crtgan]: https://github.com/libretro/slang-shaders/blob/8595c3cbea2120bc9b82e4ff756f61100543ec83/crt/shaders/guest/advanced/README_old
 [libretro]: https://github.com/libretro/glsl-shaders
 [mpv]: https://mpv.io
+[mpv-libretro]: https://github.com/hhirtz/mpv-libretro
